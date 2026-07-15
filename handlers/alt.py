@@ -8,6 +8,7 @@ import html
 
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -198,11 +199,17 @@ async def cb_altcancel(call: CallbackQuery):
             await update_order(ref, status="cancelled", refunded=True)
         else:
             await update_order(ref, status="cancelled")
-        await call.message.edit_text(
-            "✅ Order cancelled & refunded.", reply_markup=kb_back("menu"))
+        try:
+            await call.message.edit_text(
+                "✅ Order cancelled & refunded.", reply_markup=kb_back("menu"))
+        except TelegramBadRequest:
+            pass
     else:
-        await call.message.edit_text(
-            "❌ Could not cancel this order.", reply_markup=kb_back("menu"))
+        try:
+            await call.message.edit_text(
+                "❌ Could not cancel this order.", reply_markup=kb_back("menu"))
+        except TelegramBadRequest:
+            pass
 
 
 # ---- OTP poller ----
