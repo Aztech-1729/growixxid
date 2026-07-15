@@ -25,7 +25,7 @@ def client():
 def create_qr_code(user_id: int, amount_inr: float, note: str = "Wallet top-up"):
     """Create a single-use UPI QR code. Returns (qr_image_url, qr_code_id)."""
     amount_paise = int(round(amount_inr * 100))
-    res = client().qr_code.create({
+    res = client().qrcode.create({
         "type": "upi_qr",
         "name": "GROWIXX Top-up",
         "usage": "single_use",
@@ -35,7 +35,7 @@ def create_qr_code(user_id: int, amount_inr: float, note: str = "Wallet top-up")
         "notes": {"user_id": str(user_id)},
         "close_by": int(time.time()) + 1800,
     })
-    return res.get("qr_code_url"), res.get("id")
+    return res.get("image_url"), res.get("id")
 
 
 def verify_webhook(body, signature: str) -> bool:

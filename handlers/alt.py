@@ -4,6 +4,7 @@ Generic catalog -> offering -> confirm -> place order -> OTP delivery, driven by
 ``suppliers.py`` so the same handlers work for very different provider APIs.
 """
 import asyncio
+import html
 
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
@@ -152,8 +153,8 @@ async def cb_altconfirm(call: CallbackQuery):
         res = await buy(sid, service, item_id)
     except Exception as e:
         await call.message.edit_text(
-            f"❌ Order failed:\n<code>{e}</code>",
-            reply_markup=kb_back("catalog"), parse_mode="HTML")
+            f"❌ Order failed: {html.escape(str(e))}",
+            reply_markup=kb_back("catalog"))
         return
 
     ref = res["ref"]

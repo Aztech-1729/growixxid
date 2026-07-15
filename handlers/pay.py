@@ -1,4 +1,6 @@
 """Razorpay "Add Funds" flow: choose amount -> UPI QR code -> auto-credit via webhook."""
+import html
+
 import httpx
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
@@ -56,10 +58,12 @@ async def cb_pay(call: CallbackQuery):
         return
     try:
         qr_url, qr_id = create_qr_code(call.from_user.id, amt)
+        if not qr_url:
+            raise RuntimeError("Razorpay did not return a QR image URL.")
     except Exception as e:
         await call.message.edit_text(
-            f"❌ Payment init failed:\n<code>{e}</code>",
-            reply_markup=kb_back("menu"), parse_mode="HTML")
+            f"❌ Payment init failed: {html.escape(str(e))}",
+            reply_markup=kb_back("menu"))
         return
     await call.message.edit_text("⏳ Generating QR code...", reply_markup=None)
     try:
@@ -74,5 +78,5 @@ async def cb_pay(call: CallbackQuery):
             parse_mode="HTML")
     except Exception as e:
         await call.message.edit_text(
-            f"❌ Failed to load QR:\n<code>{e}</code>",
-            reply_markup=kb_back("menu"), parse_mode="HTML")
+            f"❌ Failed to load QR: {html.escape(str(e))}",
+            reply_markup=kb_back("menu"))

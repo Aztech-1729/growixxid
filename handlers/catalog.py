@@ -1,5 +1,6 @@
 """Shop flow: catalog -> country -> confirm -> place order -> OTP delivery."""
 import asyncio
+import html
 
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
@@ -151,8 +152,8 @@ async def cb_confirm(call: CallbackQuery):
             ref = d["order_id"]; number = d["phone_number"]; price = d["price"]; name = code
     except VNHOTPError as e:
         await call.message.edit_text(
-            f"❌ Order failed:\n<code>{e}</code>",
-            reply_markup=kb_back("catalog"), parse_mode="HTML")
+            f"❌ Order failed: {html.escape(str(e))}",
+            reply_markup=kb_back("catalog"))
         return
 
     # 3) success -> deduct wallet, log order, start OTP polling
