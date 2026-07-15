@@ -29,7 +29,7 @@ def _kb_cancel(sid: str, ref: str):
     b.button(text="❌ Cancel & Refund", callback_data=f"altcancel:{sid}:{ref}",
              style=ButtonStyle.DANGER)
     b.adjust(1)
-    return b
+    return b.as_markup()
 
 
 # ---- supplier menu ----
