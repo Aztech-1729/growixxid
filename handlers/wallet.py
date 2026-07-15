@@ -4,7 +4,7 @@ from aiogram.types import CallbackQuery
 
 from db import get_wallet, get_currency_pref, set_currency_pref
 from keyboards import kb_wallet
-from rates import usd_to_inr
+from rates import RateFetchError, usd_to_inr
 
 router = Router()
 
@@ -31,7 +31,12 @@ async def _wallet_text(user_id: int) -> tuple:
 @router.callback_query(F.data == "wallet")
 async def cb_wallet(call: CallbackQuery):
     await call.answer()
-    text, currency = await _wallet_text(call.from_user.id)
+    try:
+        text, currency = await _wallet_text(call.from_user.id)
+    except RateFetchError:
+        await call.message.edit_text(
+            "❌ Could not fetch live rate. Please try again later.")
+        return
     await call.message.edit_text(text, reply_markup=kb_wallet(currency),
                                  parse_mode="HTML")
 
@@ -43,6 +48,11 @@ async def cb_toggle_currency(call: CallbackQuery):
     current = await get_currency_pref(user_id)
     new_currency = "USD" if current == "INR" else "INR"
     await set_currency_pref(user_id, new_currency)
-    text, _ = await _wallet_text(user_id)
+    try:
+        text, _ = await _wallet_text(user_id)
+    except RateFetchError:
+        await call.message.edit_text(
+            "❌ Could not fetch live rate. Please try again later.")
+        return
     await call.message.edit_text(text, reply_markup=kb_wallet(new_currency),
                                  parse_mode="HTML")

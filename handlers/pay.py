@@ -9,7 +9,7 @@ from config import config
 from db import get_wallet, get_currency_pref
 from keyboards import kb_back
 from payments import create_qr_code
-from rates import usd_to_inr
+from rates import RateFetchError, usd_to_inr
 
 router = Router()
 
@@ -21,7 +21,12 @@ async def cb_addfunds(call: CallbackQuery):
     await call.answer()
     bal = await get_wallet(call.from_user.id)
     currency = await get_currency_pref(call.from_user.id)
-    rate = await usd_to_inr()
+    try:
+        rate = await usd_to_inr()
+    except RateFetchError:
+        await call.message.edit_text(
+            "❌ Could not fetch live rate. Please try again later.")
+        return
     if currency == "USD":
         display = bal / rate
         symbol, code = "$", "USD"
