@@ -1,10 +1,9 @@
 """Razorpay "Add Funds" flow: choose amount -> UPI QR code -> auto-credit via webhook."""
 import html
 
-import httpx
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
-from aiogram.types import BufferedInputFile, CallbackQuery
+from aiogram.types import URLInputFile, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import config
@@ -67,11 +66,8 @@ async def cb_pay(call: CallbackQuery):
         return
     await call.message.edit_text("⏳ Generating QR code...", reply_markup=None)
     try:
-        async with httpx.AsyncClient() as hc:
-            r = await hc.get(qr_url)
-            photo = BufferedInputFile(r.content, filename="qr.png")
         await call.message.answer_photo(
-            photo,
+            URLInputFile(qr_url),
             caption=f"💰 <b>Add ₹{amt}</b>\n\n"
                     f"Scan this QR with any UPI app to pay.\n"
                     f"Your wallet will be credited automatically once confirmed.",
