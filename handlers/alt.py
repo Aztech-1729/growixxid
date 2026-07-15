@@ -233,6 +233,17 @@ async def poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number)
             return
         await asyncio.sleep(interval)
     await update_order(ref, status="expired")
+    # Try to cancel on the supplier and refund the wallet
+    try:
+        ok = await cancel(sid, ref)
+        if ok:
+            o = await get_order(ref)
+            if o and float(o.get("price_inr", 0)):
+                await credit_wallet(o["user_id"], float(o["price_inr"]),
+                                    f"Refund for expired {sid} order")
+                await update_order(ref, status="cancelled", refunded=True)
+    except Exception:
+        pass
     try:
         await bot.edit_message_text(
             "⌛ OTP not received within the time limit. Order expired.",

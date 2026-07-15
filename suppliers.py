@@ -25,7 +25,7 @@ SUPPLIERS = {
         "client": tigersms,
         "error": TigerSMSError,
         "services": [
-            {"key": "tg", "label": "📱 Telegram", "native": "tg", "cancellable": False},
+            {"key": "tg", "label": "📱 Telegram", "native": "tg", "cancellable": True},
             {"key": "wa", "label": "💬 WhatsApp", "native": "wa", "cancellable": True},
         ],
     },
