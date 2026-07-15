@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from tigersms import tigersms, TigerSMSError
+from flags import flag_from_name
 
 
 @dataclass
@@ -59,14 +60,16 @@ async def _tiger_offerings(service_key: str) -> list:
         count = int(d.get("count", 0))
         if count <= 0:
             continue
+        eng_name = names.get(str(cid), cid)
+        flag = flag_from_name(eng_name)
         out.append(Offering(
             id=str(cid),
-            label=f"🏳️ {names.get(str(cid), cid)}",
+            label=f"{flag} {eng_name}",
             price_usd=float(d["cost"]),
             stock=count,
             meta={"native": svc["native"], "cancellable": svc["cancellable"]},
         ))
-    out.sort(key=lambda o: (o.stock or 0), reverse=True)
+    out.sort(key=lambda o: o.label.lower())
     return out
 
 

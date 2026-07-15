@@ -6,6 +6,7 @@ from aiogram.enums import ButtonStyle
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import config
+from flags import flag_from_code, flag_from_name
 
 PRIMARY = ButtonStyle.PRIMARY
 SUCCESS = ButtonStyle.SUCCESS
@@ -50,7 +51,8 @@ def kb_countries(service, countries, page, page_size: int = 8):
     start = page * page_size
     chunk = countries[start:start + page_size]
     for c in chunk:
-        label = c["name"]
+        flag = flag_from_code(c.get("code", "")) or flag_from_name(c.get("name", ""))
+        label = f"{flag} {c['name']}"
         if c.get("price") is not None:
             inr_price = float(c["price"]) * config.USD_INR_RATE
             label += f" — {config.CURRENCY}{inr_price:.2f}"
