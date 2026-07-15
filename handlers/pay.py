@@ -6,9 +6,10 @@ from aiogram.types import BufferedInputFile, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import config
-from db import get_wallet
+from db import get_wallet, get_currency_pref
 from keyboards import kb_back
 from payments import create_qr_code
+from rates import usd_to_inr
 
 router = Router()
 
@@ -19,14 +20,24 @@ _PRESETS = (1, 10, 50, 100, 500)
 async def cb_addfunds(call: CallbackQuery):
     await call.answer()
     bal = await get_wallet(call.from_user.id)
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
+    if currency == "USD":
+        display = bal / rate
+        symbol, code = "$", "USD"
+    else:
+        display = bal
+        symbol, code = "₹", "INR"
     b = InlineKeyboardBuilder()
     for amt in _PRESETS:
         b.button(text=f"₹{amt}", callback_data=f"pay:{amt}")
     b.adjust(2)
-    b.button(text="🔙 Back", callback_data="menu", style=ButtonStyle.DANGER)
+    b.button(text="🔙 Back", callback_data="wallet", style=ButtonStyle.DANGER)
     b.adjust(1)
     await call.message.edit_text(
-        f"💰 <b>Add Funds</b>\nWallet balance: ₹{bal:.2f}\n\nChoose an amount:",
+        f"💰 <b>Add Funds</b>\n"
+        f"Wallet balance: {symbol}{display:.2f} {code}\n\n"
+        f"Choose an amount:",
         reply_markup=b.as_markup(), parse_mode="HTML")
 
 

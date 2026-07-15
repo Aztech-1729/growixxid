@@ -15,11 +15,21 @@ DANGER = ButtonStyle.DANGER
 def kb_main(is_admin: bool = False):
     b = InlineKeyboardBuilder()
     b.button(text="🛒 Browse Numbers", callback_data="catalog", style=PRIMARY)
+    b.button(text="💰 My Wallet", callback_data="wallet", style=PRIMARY)
     b.button(text="📜 My Orders", callback_data="myorders", style=PRIMARY)
-    b.button(text="💰 Add Funds", callback_data="addfunds", style=PRIMARY)
     b.button(text="ℹ️ How to Use", callback_data="help", style=PRIMARY)
     if is_admin:
         b.button(text="👑 Admin", callback_data="admin", style=PRIMARY)
+    b.adjust(1)
+    return b.as_markup()
+
+
+def kb_wallet(currency: str):
+    b = InlineKeyboardBuilder()
+    b.button(text=f"🔄 Switch to {'USD' if currency == 'INR' else 'INR'}",
+             callback_data="toggle_currency", style=PRIMARY)
+    b.button(text="➕ Add Funds", callback_data="addfunds", style=SUCCESS)
+    b.button(text="🔙 Back", callback_data="menu", style=DANGER)
     b.adjust(1)
     return b.as_markup()
 

@@ -112,3 +112,15 @@ async def deduct_wallet(user_id: int, amount: float, note: str = "") -> bool:
         "user_id": user_id, "type": "debit", "amount": float(amount),
         "note": note, "created_at": datetime.datetime.now(timezone.utc)})
     return True
+
+
+async def set_currency_pref(user_id: int, currency: str) -> None:
+    await users.update_one(
+        {"user_id": user_id},
+        {"$set": {"currency_pref": currency}},
+        upsert=True)
+
+
+async def get_currency_pref(user_id: int) -> str:
+    u = await users.find_one({"user_id": user_id})
+    return u.get("currency_pref", "INR") if u else "INR"
