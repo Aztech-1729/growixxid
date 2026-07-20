@@ -9,20 +9,44 @@ import html
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import config
-from db import (add_order, get_order, get_wallet, deduct_wallet,
-                credit_wallet, update_order)
-from keyboards import kb_back
-from suppliers import SUPPLIERS, get_offerings, buy, get_code, cancel
+from core.config import config
+from core.db import (add_order, get_order, get_wallet, deduct_wallet,
+                credit_wallet, update_order, get_currency_pref)
+from ui.keyboards import kb_back
+from utils.rates import usd_to_inr
+from services.suppliers import SUPPLIERS, get_offerings, buy, get_code, cancel
 
 router = Router()
 
-# Per-user cache of the current supplier/service offering list (single process).
 CACHE: dict = {}
 PAGE = 8
+
+
+async def _edit(msg, text, reply_markup=None, parse_mode=None):
+    try:
+        await msg.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest:
+        try:
+            await msg.edit_caption(caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except TelegramBadRequest:
+            pass
+
+
+async def _edit_msg(bot, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+    try:
+        await bot.edit_message_text(
+            text, chat_id=chat_id, message_id=message_id,
+            reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest:
+        try:
+            await bot.edit_message_caption(
+                chat_id=chat_id, message_id=message_id,
+                caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except TelegramBadRequest:
+            pass
 
 
 def _kb_cancel(sid: str, ref: str):
@@ -42,12 +66,19 @@ async def cb_alt(call: CallbackQuery):
     b = InlineKeyboardBuilder()
     for s in sup["services"]:
         b.button(text=s["label"], callback_data=f"altcat:{sid}:{s['key']}",
-                 style=ButtonStyle.PRIMARY)
-    b.adjust(1)
-    b.button(text="🔙 Back", callback_data="catalog", style=ButtonStyle.DANGER)
-    await call.message.edit_text(
-        f"🛰 <b>{sup['name']}</b> — {sup['subtitle']}\nChoose a service:",
-        reply_markup=b.as_markup(), parse_mode="HTML")
+                 style=ButtonStyle.SUCCESS)
+                 
+    sizes = [2] * (len(sup["services"]) // 2)
+    if len(sup["services"]) % 2 != 0:
+        sizes.append(1)
+        
+    b.button(text="Back", callback_data="catalog", style=ButtonStyle.DANGER, icon_custom_emoji_id="5352759161945867747")
+    sizes.append(1)
+    
+    b.adjust(*sizes)
+    await _edit(call.message,
+                f"🌐 <b>Other Services</b>\n<b>Choose a service:</b>",
+                reply_markup=b.as_markup(), parse_mode="HTML")
 
 
 # ---- service -> offering list ----
@@ -58,48 +89,71 @@ async def cb_altcat(call: CallbackQuery):
     try:
         items = await get_offerings(sid, service)
     except Exception as e:
-        await call.message.edit_text(f"❌ {e}", reply_markup=kb_back(f"alt:{sid}"),
-                                     parse_mode="HTML")
+        await _edit(call.message, f"❌ {e}", reply_markup=kb_back(f"alt:{sid}"),
+                    parse_mode="HTML")
         return
     if not items:
-        await call.message.edit_text("😕 No numbers available right now for this service.",
-                                     reply_markup=kb_back(f"alt:{sid}"))
+        await _edit(call.message, "😕 No numbers available right now for this service.",
+                    reply_markup=kb_back(f"alt:{sid}"))
         return
     CACHE.setdefault(call.from_user.id, {})[f"{sid}:{service}"] = items
-    await _show_offerings(call, sid, service, items, 0)
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
+    await _edit(call.message,
+        f"🌍 <b>Other Services</b> — <b>{service.upper()}</b>\n<b>Choose an option:</b>",
+        reply_markup=_offering_kb(sid, service, items, 0, currency, rate), parse_mode="HTML")
+
+
+def _offering_kb(sid, service, items, page, currency="INR", rate=83.0):
+    b = InlineKeyboardBuilder()
+    start = page * PAGE
+    chunk = items[start:start + PAGE]
+    for o in chunk:
+        if currency == "USD":
+            label = f"{o.label} — ${o.price_usd:.2f}"
+        else:
+            inr = o.price_usd * rate
+            label = f"{o.label} — ₹{inr:.2f}"
+            
+        if o.stock is not None:
+            label += f" ({o.stock} left)"
+        b.button(text=label, callback_data=f"altbuy:{sid}:{service}:{o.id}",
+                 style=ButtonStyle.SUCCESS)
+                 
+    sizes = [1] * len(chunk)
+    
+    nav_count = 0
+    if page > 0:
+        b.button(text="Prev", callback_data=f"altpg:{sid}:{service}:{page - 1}", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="5438531879345076160")
+        nav_count += 1
+    if start + PAGE < len(items):
+        b.button(text="Next", callback_data=f"altpg:{sid}:{service}:{page + 1}", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="5435955998479102657")
+        nav_count += 1
+        
+    if nav_count:
+        sizes.append(nav_count)
+        
+    b.button(text="Search", callback_data=f"search:alt:{sid}:{service}", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="5429571366384842791")
+    sizes.append(1)
+        
+    b.button(text="Back", callback_data=f"alt:{sid}", style=ButtonStyle.DANGER, icon_custom_emoji_id="5352759161945867747")
+    sizes.append(1)
+    
+    b.adjust(*sizes)
+    return b.as_markup()
 
 
 @router.callback_query(F.data.startswith("altpg:"))
 async def cb_altpg(call: CallbackQuery):
     await call.answer()
     _, sid, service, page = call.data.split(":")
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
     items = CACHE.get(call.from_user.id, {}).get(f"{sid}:{service}", [])
-    await _show_offerings(call, sid, service, items, int(page))
-
-
-async def _show_offerings(call, sid, service, items, page):
-    b = InlineKeyboardBuilder()
-    start = page * PAGE
-    for o in items[start:start + PAGE]:
-        inr = o.price_usd * config.USD_INR_RATE
-        label = f"{o.label} — ₹{inr:.2f}"
-        if o.stock is not None:
-            label += f" ({o.stock} left)"
-        # buyable stock option -> SUCCESS
-        b.button(text=label, callback_data=f"altbuy:{sid}:{service}:{o.id}",
-                 style=ButtonStyle.SUCCESS)
-    b.adjust(1)
-    if page > 0:
-        b.button(text="◀️ Prev", callback_data=f"altpg:{sid}:{service}:{page - 1}",
-                 style=ButtonStyle.DANGER)
-    if start + PAGE < len(items):
-        b.button(text="Next ▶️", callback_data=f"altpg:{sid}:{service}:{page + 1}",
-                 style=ButtonStyle.DANGER)
-    b.button(text="🔙 Back", callback_data=f"alt:{sid}", style=ButtonStyle.DANGER)
-    b.adjust(1)
-    await call.message.edit_text(
-        f"🌍 <b>{SUPPLIERS[sid]['name']}</b> — {service.upper()}\nChoose an option:",
-        reply_markup=b.as_markup(), parse_mode="HTML")
+    await _edit(call.message,
+                f"🌍 <b>Other Services</b> — <b>{service.upper()}</b>\n<b>Choose an option:</b>",
+                reply_markup=_offering_kb(sid, service, items, int(page), currency, rate),
+                parse_mode="HTML")
 
 
 # ---- confirm ----
@@ -109,21 +163,24 @@ async def cb_altbuy(call: CallbackQuery):
     _, sid, service, item_id = call.data.split(":", 3)
     o = await _resolve_offering(call.from_user.id, sid, service, item_id)
     if not o:
-        await call.message.edit_text("❌ Session expired. Please start again.",
-                                     reply_markup=kb_back("catalog"))
+        await _edit(call.message, "❌ Session expired. Please start again.",
+                    reply_markup=kb_back("catalog"))
         return
-    inr = o.price_usd * config.USD_INR_RATE
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
+    inr = o.price_usd * rate
+    display_price = f"${o.price_usd:.2f}" if currency == "USD" else f"₹{inr:.2f}"
+    
     b = InlineKeyboardBuilder()
-    b.button(text=f"✅ Buy (₹{inr:.2f})",
+    b.button(text=f"✅ Buy ({display_price})",
              callback_data=f"altconfirm:{sid}:{service}:{item_id}",
              style=ButtonStyle.SUCCESS)
-    b.button(text="🔙 Cancel", callback_data=f"alt:{sid}", style=ButtonStyle.DANGER)
+    b.button(text="Cancel", callback_data=f"alt:{sid}", style=ButtonStyle.DANGER, icon_custom_emoji_id="5352759161945867747")
     b.adjust(1)
-    await call.message.edit_text(
-        f"🧾 <b>Confirm Order</b>\n\n"
-        f"Supplier: <b>{SUPPLIERS[sid]['name']}</b>\n"
-        f"Service: {service.upper()}\nOption: {o.label}\nPrice: ₹{inr:.2f}",
-        reply_markup=b.as_markup(), parse_mode="HTML")
+    await _edit(call.message,
+                f"🧾 <b>Confirm Order</b>\n\n"
+                f"<b>Service:</b> {service.upper()}\n<b>Option:</b> {o.label}\n<b>Price:</b> {display_price}",
+                reply_markup=b.as_markup(), parse_mode="HTML")
 
 
 # ---- place order ----
@@ -133,29 +190,32 @@ async def cb_altconfirm(call: CallbackQuery):
     _, sid, service, item_id = call.data.split(":", 3)
     o = await _resolve_offering(call.from_user.id, sid, service, item_id)
     if not o:
-        await call.message.edit_text("❌ Session expired. Please start again.",
-                                     reply_markup=kb_back("catalog"))
+        await _edit(call.message, "❌ Session expired. Please start again.",
+                    reply_markup=kb_back("catalog"))
         return
-    inr = o.price_usd * config.USD_INR_RATE
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
+    inr = o.price_usd * rate
+    display_price = f"${o.price_usd:.2f}" if currency == "USD" else f"₹{inr:.2f}"
     wallet = await get_wallet(call.from_user.id)
     if wallet < inr:
         b = InlineKeyboardBuilder()
         b.button(text="💰 Add Funds", callback_data="addfunds",
                  style=ButtonStyle.SUCCESS)
-        b.button(text="🔙 Back", callback_data="catalog", style=ButtonStyle.DANGER)
+        b.button(text="Back", callback_data="catalog", style=ButtonStyle.DANGER, icon_custom_emoji_id="5352759161945867747")
         b.adjust(1)
-        await call.message.edit_text(
-            f"💡 Price: ₹{inr:.2f}\nYour wallet: ₹{wallet:.2f}\n\n"
-            f"Please add funds to continue.",
-            reply_markup=b.as_markup(), parse_mode="HTML")
+        await _edit(call.message,
+                    f"💡 Price: {display_price}\nYour wallet: {('$' if currency == 'USD' else '₹')}{(wallet/rate if currency == 'USD' else wallet):.2f}\n\n"
+                    f"Please add funds to continue.",
+                    reply_markup=b.as_markup(), parse_mode="HTML")
         return
 
     try:
         res = await buy(sid, service, item_id)
     except Exception as e:
-        await call.message.edit_text(
-            f"❌ Order failed: {html.escape(str(e))}",
-            reply_markup=kb_back("catalog"))
+        await _edit(call.message,
+                    f"❌ Order failed: {html.escape(str(e))}",
+                    reply_markup=kb_back("catalog"))
         return
 
     ref = res["ref"]
@@ -170,12 +230,11 @@ async def cb_altconfirm(call: CallbackQuery):
 
     svc = next(s for s in SUPPLIERS[sid]["services"] if s["key"] == service)
     kb = _kb_cancel(sid, ref) if svc["cancellable"] else kb_back("menu")
-    await call.message.edit_text(
-        f"⏳ Order placed! Waiting for OTP…\n\n"
-        f"Supplier: <b>{SUPPLIERS[sid]['name']}</b>\n"
-        f"Service: {service.upper()}\nNumber: <code>{number}</code>\n"
-        f"Charged: ₹{inr:.2f}",
-        reply_markup=kb, parse_mode="HTML")
+    await _edit(call.message,
+                f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n"
+                f"<b>Service:</b> {service.upper()}\n<b>Number:</b> <code>{number}</code>\n"
+                f"<b>Charged:</b> {display_price}",
+                reply_markup=kb, parse_mode="HTML")
 
     asyncio.create_task(_safe_poll_alt(
         call.bot, call.from_user.id, call.message.chat.id,
@@ -190,7 +249,7 @@ async def cb_altcancel(call: CallbackQuery):
     try:
         ok = await cancel(sid, ref)
     except Exception as e:
-        await call.message.edit_text(f"❌ {e}", reply_markup=kb_back("menu"))
+        await _edit(call.message, f"❌ {e}", reply_markup=kb_back("menu"))
         return
     if ok:
         o = await get_order(ref)
@@ -199,17 +258,11 @@ async def cb_altcancel(call: CallbackQuery):
             await update_order(ref, status="cancelled", refunded=True)
         else:
             await update_order(ref, status="cancelled")
-        try:
-            await call.message.edit_text(
-                "✅ Order cancelled & refunded.", reply_markup=kb_back("menu"))
-        except TelegramBadRequest:
-            pass
+        await _edit(call.message, "✅ Order cancelled & refunded.",
+                    reply_markup=kb_back("menu"))
     else:
-        try:
-            await call.message.edit_text(
-                "❌ Could not cancel this order.", reply_markup=kb_back("menu"))
-        except TelegramBadRequest:
-            pass
+        await _edit(call.message, "❌ Could not cancel this order.",
+                    reply_markup=kb_back("menu"))
 
 
 # ---- OTP poller ----
@@ -231,16 +284,15 @@ async def poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number)
             code = None
         if code:
             await update_order(ref, status="completed", otp=code)
-            await bot.edit_message_text(
+            await _edit_msg(
+                bot, chat_id, message_id,
                 f"✅ <b>OTP Received!</b>\n\n"
-                f"Supplier: {SUPPLIERS[sid]['name']}\n"
-                f"Number: <code>{number}</code>\nOTP: <b>{code}</b>",
-                chat_id=chat_id, message_id=message_id,
+                f"<b>Service:</b> {service.upper()}\n"
+                f"<b>Number:</b> <code>{number}</code>\n<b>OTP:</b> <b>{code}</b>",
                 parse_mode="HTML", reply_markup=kb_back("menu"))
             return
         await asyncio.sleep(interval)
     await update_order(ref, status="expired")
-    # Try to cancel on the supplier and refund the wallet
     try:
         ok = await cancel(sid, ref)
         if ok:
@@ -251,12 +303,10 @@ async def poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number)
                 await update_order(ref, status="cancelled", refunded=True)
     except Exception:
         pass
-    try:
-        await bot.edit_message_text(
-            "⌛ OTP not received within the time limit. Order expired.",
-            chat_id=chat_id, message_id=message_id, reply_markup=kb_back("menu"))
-    except Exception:
-        pass
+    await _edit_msg(
+        bot, chat_id, message_id,
+        "⌛ OTP not received within the time limit. Order expired.",
+        reply_markup=kb_back("menu"))
 
 
 async def _resolve_offering(user_id, sid, service, item_id):

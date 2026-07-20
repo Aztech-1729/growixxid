@@ -11,7 +11,7 @@ from datetime import timezone
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from config import config
+from core.config import config
 
 _client = AsyncIOMotorClient(config.MONGO_URI)
 db = _client[config.MONGO_DB]
@@ -68,9 +68,12 @@ async def get_order(ref: str):
     return await orders.find_one({"order_ref": ref})
 
 
-async def get_user_orders(user_id: int, limit: int = 10):
-    cur = orders.find({"user_id": user_id}).sort("created_at", -1).limit(limit)
+async def get_user_orders(user_id: int, skip: int = 0, limit: int = 10):
+    cur = orders.find({"user_id": user_id}).sort("created_at", -1).skip(skip).limit(limit)
     return await cur.to_list(length=limit)
+
+async def count_user_orders(user_id: int) -> int:
+    return await orders.count_documents({"user_id": user_id})
 
 
 async def count_users() -> int:

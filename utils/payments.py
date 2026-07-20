@@ -9,7 +9,7 @@ import time
 
 import razorpay
 
-from config import config
+from core.config import config
 
 
 _client = None

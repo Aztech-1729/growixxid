@@ -18,6 +18,7 @@ class Config:
 
     # Alternate suppliers
     TIGERSMS_API_KEY = os.getenv("TIGERSMS_API_KEY", "")
+    GRIZZLY_API_KEY = os.getenv("GRIZZLY_API_KEY", "")
 
     MONGO_URI = os.getenv("MONGO_URI", "")
     MONGO_DB = os.getenv("MONGO_DB", "growixxstore")
@@ -37,10 +38,37 @@ class Config:
     PAYMENT_BASE_URL = os.getenv("PAYMENT_BASE_URL", "")
     USD_INR_RATE = float(os.getenv("USD_INR_RATE", "83.0"))
     WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
+    START_IMAGE = os.getenv("START_IMAGE", "start.jpg")
 
     @property
     def channel_link(self) -> str:
         return f"https://t.me/{self.FORCE_JOIN_CHANNEL}"
+
+    @property
+    def logo_domains(self) -> dict:
+        return {
+            "tg": "telegram.org",
+            "wa": "whatsapp.com",
+            "wb": "wechat.com",
+            "vk": "vk.com",
+            "ok": "ok.ru",
+            "go": "google.com",
+            "ya": "yandex.com",
+            "av": "avito.ru",
+            "ma": "mail.ru",
+            "fb": "facebook.com",
+            "ub": "uber.com",
+            "sn": "snapchat.com",
+            "vi": "viber.com",
+            "me": "messenger.com",
+            "sk": "skype.com",
+        }
+
+    def logo_url(self, service_key: str) -> str | None:
+        domain = self.logo_domains.get(service_key)
+        if domain:
+            return f"https://logo.debounce.com/{domain}"
+        return None
 
 
 config = Config()

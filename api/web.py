@@ -3,9 +3,9 @@ import json
 
 from aiohttp import web
 
-from config import config
-from db import credit_wallet
-from payments import verify_webhook
+from core.config import config
+from core.db import credit_wallet
+from utils.payments import verify_webhook
 
 _bot = None
 

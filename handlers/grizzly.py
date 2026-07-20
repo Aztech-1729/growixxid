@@ -1,0 +1,399 @@
+"""Shop flow for GrizzlySMS (3000+ Services)."""
+import asyncio
+import html
+
+from aiogram import Router, F
+from aiogram.enums import ButtonStyle
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from core.config import config
+from core.db import (add_order, get_order, get_wallet, deduct_wallet,
+                credit_wallet, update_order, get_currency_pref)
+from ui.keyboards import kb_back
+from utils.rates import usd_to_inr
+from services.grizzly_api import grizzly, GrizzlySMSError
+from utils.flags import flag_from_name
+
+router = Router()
+
+SERVICES_CACHE = []
+OFFERINGS_CACHE = {}
+PAGE_SIZE = 10
+
+
+async def _edit(msg, text, reply_markup=None, parse_mode=None):
+    try:
+        await msg.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest:
+        try:
+            await msg.edit_caption(caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except TelegramBadRequest:
+            pass
+
+
+async def _edit_msg(bot, chat_id, message_id, text, reply_markup=None, parse_mode=None):
+    try:
+        await bot.edit_message_text(
+            text, chat_id=chat_id, message_id=message_id,
+            reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest:
+        try:
+            await bot.edit_message_caption(
+                chat_id=chat_id, message_id=message_id,
+                caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except TelegramBadRequest:
+            pass
+
+
+def _kb_cancel(ref: str):
+    b = InlineKeyboardBuilder()
+    b.button(text="❌ Cancel & Refund", callback_data=f"grzcancel:{ref}",
+             style=ButtonStyle.DANGER)
+    b.adjust(1)
+    return b.as_markup()
+
+
+async def get_all_services():
+    global SERVICES_CACHE
+    if not SERVICES_CACHE:
+        try:
+            SERVICES_CACHE = await grizzly.services_list()
+        except GrizzlySMSError:
+            return []
+    return SERVICES_CACHE
+
+
+def _services_kb(services, page: int):
+    b = InlineKeyboardBuilder()
+    start = page * PAGE_SIZE
+    chunk = services[start:start + PAGE_SIZE]
+    for s in chunk:
+        b.button(text=s["name"], callback_data=f"grzsvc:{s['code']}:0",
+                 style=ButtonStyle.SUCCESS)
+                 
+    sizes = [2] * (len(chunk) // 2)
+    if len(chunk) % 2 != 0:
+        sizes.append(1)
+        
+    nav_count = 0
+    if page > 0:
+        b.button(text="Prev", callback_data=f"grizzly:menu:{page - 1}", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="5438531879345076160")
+        nav_count += 1
+    if start + PAGE_SIZE < len(services):
+        b.button(text="Next", callback_data=f"grizzly:menu:{page + 1}", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="5435955998479102657")
+        nav_count += 1
+        
+    if nav_count:
+        sizes.append(nav_count)
+        
+    b.button(text="Search", callback_data="search:grz_svc", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="5429571366384842791")
+    sizes.append(1)
+        
+    b.button(text="Back", callback_data="catalog", style=ButtonStyle.DANGER, icon_custom_emoji_id="5352759161945867747")
+    sizes.append(1)
+    
+    b.adjust(*sizes)
+    return b.as_markup()
+
+
+# ---- supplier menu (Services) ----
+@router.callback_query(F.data.startswith("grizzly:menu:"))
+async def cb_grizzly_menu(call: CallbackQuery):
+    await call.answer()
+    page = int(call.data.split(":")[2])
+    services = await get_all_services()
+    if not services:
+        await _edit(call.message, "❌ Could not load GrizzlySMS services.", reply_markup=kb_back("catalog"))
+        return
+        
+    await _edit(call.message,
+                "🌍 <b>3000+ Services</b>\n<b>Choose a service:</b>",
+                reply_markup=_services_kb(services, page), parse_mode="HTML")
+
+
+# ---- service -> offering list ----
+@router.callback_query(F.data.startswith("grzsvc:"))
+async def cb_grzsvc(call: CallbackQuery):
+    await call.answer()
+    parts = call.data.split(":")
+    service_code = parts[1]
+    page = int(parts[2])
+    sort_mode = parts[3] if len(parts) > 3 else "name"
+    
+    services = await get_all_services()
+    service_name = next((s["name"] for s in services if s["code"] == service_code), service_code)
+    
+    items = OFFERINGS_CACHE.get(service_code)
+    if items is None:
+        try:
+            prices = await grizzly.prices(service_code)
+            countries = await grizzly.countries()
+            
+            names = {str(c["id"]): (c.get("eng") or c.get("rus") or str(c["id"])) for c in countries}
+            items = []
+            for cid, svcs in prices.items():
+                d = svcs.get(service_code)
+                if not d:
+                    continue
+                count = int(d.get("count", 0))
+                if count <= 0:
+                    continue
+                eng_name = names.get(str(cid), cid)
+                flag = flag_from_name(eng_name)
+                label = f"{flag} {eng_name}" if flag else eng_name
+                items.append({
+                    "id": str(cid),
+                    "label": label,
+                    "price_usd": float(d["cost"]),
+                    "stock": count
+                })
+            items.sort(key=lambda o: o["label"].lower())
+            OFFERINGS_CACHE[service_code] = items
+        except Exception as e:
+            await _edit(call.message, f"❌ {e}", reply_markup=kb_back("grizzly:menu:0"))
+            return
+            
+    if not items:
+        await _edit(call.message, f"😕 No numbers available right now for <b>{service_name}</b>.",
+                    reply_markup=kb_back("grizzly:menu:0"), parse_mode="HTML")
+        return
+        
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
+    
+    sorted_items = list(items)
+    if sort_mode == "cheap":
+        sorted_items.sort(key=lambda o: o["price_usd"])
+    elif sort_mode == "qty":
+        sorted_items.sort(key=lambda o: o["stock"], reverse=True)
+        
+    from keyboards import CUSTOM_EMOJIS
+    emoji_tag = "🌍"
+    if service_code in CUSTOM_EMOJIS:
+        emoji_tag = f"<tg-emoji emoji-id='{CUSTOM_EMOJIS[service_code][1]}'>{CUSTOM_EMOJIS[service_code][0]}</tg-emoji>"
+        
+    await _edit(call.message,
+        f"{emoji_tag} <b>{service_name}</b>\n<b>Choose a country:</b>",
+        reply_markup=_offering_kb(service_code, service_name, sorted_items, page, currency, rate, sort_mode), parse_mode="HTML")
+
+
+def _offering_kb(service_code, service_name, items, page, currency="INR", rate=83.0, sort_mode="name"):
+    b = InlineKeyboardBuilder()
+    start = page * PAGE_SIZE
+    chunk = items[start:start + PAGE_SIZE]
+    for o in chunk:
+        if currency == "USD":
+            label = f"{o['label']} — ${o['price_usd']:.2f}"
+        else:
+            inr = o['price_usd'] * rate
+            label = f"{o['label']} — ₹{inr:.2f}"
+            
+        if o.get("stock") is not None:
+            label += f" ({o['stock']} left)"
+        b.button(text=label, callback_data=f"grzbuy:{service_code}:{o['id']}",
+                 style=ButtonStyle.SUCCESS)
+                 
+    sizes = [1] * len(chunk)
+    
+    # Sort buttons
+    b.button(text="Cheapest", callback_data=f"grzsvc:{service_code}:0:cheap", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="6240224423207507713")
+    b.button(text="High Quantity", callback_data=f"grzsvc:{service_code}:0:qty", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="5472392465203862636")
+    sizes.append(2)
+    
+    nav_count = 0
+    if page > 0:
+        b.button(text="Prev", callback_data=f"grzsvc:{service_code}:{page - 1}:{sort_mode}", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="5438531879345076160")
+        nav_count += 1
+    if start + PAGE_SIZE < len(items):
+        b.button(text="Next", callback_data=f"grzsvc:{service_code}:{page + 1}:{sort_mode}", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="5435955998479102657")
+        nav_count += 1
+        
+    if nav_count:
+        sizes.append(nav_count)
+        
+    b.button(text="Search", callback_data=f"search:grz_ctry:{service_code}", style=ButtonStyle.PRIMARY, icon_custom_emoji_id="5429571366384842791")
+    sizes.append(1)
+        
+    FEATURED = {'wa', 'ig', 'fb', 'lin', 'dy', 'fu', 'zpt', 'jx', 'go', 'aqj', 'aay'}
+    back_data = "catalog" if service_code in FEATURED else "grizzly:menu:0"
+    b.button(text="Back", callback_data=back_data, style=ButtonStyle.DANGER, icon_custom_emoji_id="5352759161945867747")
+    sizes.append(1)
+    
+    b.adjust(*sizes)
+    return b.as_markup()
+
+
+# ---- confirm ----
+@router.callback_query(F.data.startswith("grzbuy:"))
+async def cb_grzbuy(call: CallbackQuery):
+    await call.answer()
+    _, service_code, country_id = call.data.split(":", 2)
+    
+    items = OFFERINGS_CACHE.get(service_code, [])
+    o = next((x for x in items if x["id"] == country_id), None)
+    if not o:
+        await _edit(call.message, "❌ Session expired. Please start again.",
+                    reply_markup=kb_back("grizzly:menu:0"))
+        return
+        
+    services = await get_all_services()
+    service_name = next((s["name"] for s in services if s["code"] == service_code), service_code)
+        
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
+    inr = o['price_usd'] * rate
+    display_price = f"${o['price_usd']:.2f}" if currency == "USD" else f"₹{inr:.2f}"
+    
+    b = InlineKeyboardBuilder()
+    b.button(text=f"✅ Buy ({display_price})",
+             callback_data=f"grzconfirm:{service_code}:{country_id}",
+             style=ButtonStyle.SUCCESS)
+    b.button(text="Cancel", callback_data=f"grzsvc:{service_code}:0", style=ButtonStyle.DANGER, icon_custom_emoji_id="5352759161945867747")
+    b.adjust(1)
+    await _edit(call.message,
+                f"🧾 <b>Confirm Order</b>\n\n"
+                f"<b>Service:</b> {service_name}\n<b>Option:</b> {o['label']}\n<b>Price:</b> {display_price}",
+                reply_markup=b.as_markup(), parse_mode="HTML")
+
+
+# ---- place order ----
+@router.callback_query(F.data.startswith("grzconfirm:"))
+async def cb_grzconfirm(call: CallbackQuery):
+    await call.answer()
+    _, service_code, country_id = call.data.split(":", 2)
+    
+    items = OFFERINGS_CACHE.get(service_code, [])
+    o = next((x for x in items if x["id"] == country_id), None)
+    if not o:
+        await _edit(call.message, "❌ Session expired. Please start again.",
+                    reply_markup=kb_back("grizzly:menu:0"))
+        return
+        
+    services = await get_all_services()
+    service_name = next((s["name"] for s in services if s["code"] == service_code), service_code)
+        
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
+    inr = o['price_usd'] * rate
+    display_price = f"${o['price_usd']:.2f}" if currency == "USD" else f"₹{inr:.2f}"
+    
+    wallet = await get_wallet(call.from_user.id)
+    if wallet < inr:
+        b = InlineKeyboardBuilder()
+        b.button(text="💰 Add Funds", callback_data="addfunds",
+                 style=ButtonStyle.SUCCESS)
+        b.button(text="Back", callback_data="grizzly:menu:0", style=ButtonStyle.DANGER, icon_custom_emoji_id="5352759161945867747")
+        b.adjust(1)
+        await _edit(call.message,
+                    f"💡 Price: {display_price}\nYour wallet: {('$' if currency == 'USD' else '₹')}{(wallet/rate if currency == 'USD' else wallet):.2f}\n\n"
+                    f"Please add funds to continue.",
+                    reply_markup=b.as_markup(), parse_mode="HTML")
+        return
+
+    try:
+        aid, number = await grizzly.get_number(service_code, country_id)
+        prices = await grizzly.prices(service_code, country_id)
+        cost_usd = float(prices[country_id][service_code]["cost"])
+        # ensure we charge exactly what it actually cost, but cap at `inr` (expected)
+        actual_inr = cost_usd * rate
+    except Exception as e:
+        await _edit(call.message,
+                    f"❌ Order failed: {html.escape(str(e))}",
+                    reply_markup=kb_back("grizzly:menu:0"))
+        return
+
+    ref = aid
+    await deduct_wallet(call.from_user.id, actual_inr, f"grizzly {service_code} {country_id}")
+    await add_order(
+        user_id=call.from_user.id, service=f"grz:{service_code}",
+        country_code=country_id, country_name=o['label'], number=number,
+        price=cost_usd, price_inr=actual_inr, order_ref=ref,
+        supplier="grizzly", status="pending")
+
+    kb = _kb_cancel(ref)
+    await _edit(call.message,
+                f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n"
+                f"<b>Service:</b> {service_name}\n<b>Number:</b> <code>{number}</code>\n"
+                f"<b>Charged:</b> {display_price}",
+                reply_markup=kb, parse_mode="HTML")
+
+    asyncio.create_task(_safe_poll_grz(
+        call.bot, call.from_user.id, call.message.chat.id,
+        call.message.message_id, service_code, service_name, ref, number))
+
+
+# ---- cancel + refund ----
+@router.callback_query(F.data.startswith("grzcancel:"))
+async def cb_grzcancel(call: CallbackQuery):
+    await call.answer()
+    _, ref = call.data.split(":", 1)
+    try:
+        res = await grizzly.set_status(ref, 8)
+        ok = res.startswith("ACCESS")
+    except Exception as e:
+        await _edit(call.message, f"❌ {e}", reply_markup=kb_back("menu"))
+        return
+        
+    if ok:
+        o = await get_order(ref)
+        if o and float(o.get("price_inr", 0)):
+            await credit_wallet(o["user_id"], float(o["price_inr"]), "grizzly refund")
+            await update_order(ref, status="cancelled", refunded=True)
+        else:
+            await update_order(ref, status="cancelled")
+        await _edit(call.message, "✅ Order cancelled & refunded.",
+                    reply_markup=kb_back("menu"))
+    else:
+        await _edit(call.message, "❌ Could not cancel this order.",
+                    reply_markup=kb_back("menu"))
+
+
+# ---- OTP poller ----
+async def _safe_poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number):
+    try:
+        await poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number)
+    except Exception as e:
+        import logging
+        logging.exception("Grizzly OTP poller failed for %s", ref)
+
+
+async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number):
+    interval = config.OTP_POLL_INTERVAL
+    tries = max(1, int(config.OTP_TIMEOUT / interval))
+    for _ in range(tries):
+        try:
+            st = await grizzly.get_status(ref)
+            code = st.split(":", 1)[1] if st.startswith("STATUS_OK:") else None
+        except Exception:
+            code = None
+            
+        if code:
+            await update_order(ref, status="completed", otp=code)
+            await _edit_msg(
+                bot, chat_id, message_id,
+                f"✅ <b>OTP Received!</b>\n\n"
+                f"<b>Service:</b> {service_name}\n"
+                f"<b>Number:</b> <code>{number}</code>\n<b>OTP:</b> <b>{code}</b>",
+                parse_mode="HTML", reply_markup=kb_back("menu"))
+            return
+        await asyncio.sleep(interval)
+        
+    await update_order(ref, status="expired")
+    try:
+        res = await grizzly.set_status(ref, 8)
+        ok = res.startswith("ACCESS")
+        if ok:
+            o = await get_order(ref)
+            if o and float(o.get("price_inr", 0)):
+                await credit_wallet(o["user_id"], float(o["price_inr"]),
+                                    "Refund for expired grizzly order")
+                await update_order(ref, status="cancelled", refunded=True)
+    except Exception:
+        pass
+        
+    await _edit_msg(
+        bot, chat_id, message_id,
+        "⌛ OTP not received within the time limit. Order expired.",
+        reply_markup=kb_back("menu"))

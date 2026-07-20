@@ -3,13 +3,23 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from config import config
-from db import count_orders, count_users
-from keyboards import kb_admin, kb_back
-from suppliers import SUPPLIERS, balance as supplier_balance
-from vnhotp import VNHOTPError, vnhotp
+from core.config import config
+from core.db import count_orders, count_users
+from ui.keyboards import kb_admin, kb_back
+from services.suppliers import SUPPLIERS, balance as supplier_balance
+from services.vnhotp import VNHOTPError, vnhotp
+from aiogram.exceptions import TelegramBadRequest
 
 router = Router()
+
+async def _edit(msg, text, reply_markup=None, parse_mode=None):
+    try:
+        await msg.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest:
+        try:
+            await msg.edit_caption(caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except TelegramBadRequest:
+            pass
 
 
 def _fmt(amount) -> str:
@@ -38,6 +48,14 @@ async def _panel() -> str:
             lines.append(f"{sup['name']} balance: {_fmt(await supplier_balance(sid))}")
         except Exception as e:
             lines.append(f"{sup['name']} balance: error ({e})")
+            
+    # Grizzly SMS
+    try:
+        from grizzly_api import grizzly
+        g_bal = await grizzly.balance()
+        lines.append(f"Grizzly balance: ₽ {g_bal:.2f}")
+    except Exception as e:
+        lines.append(f"Grizzly balance: error ({e})")
 
     users = await count_users()
     orders = await count_orders()
@@ -62,7 +80,7 @@ async def cb_admin(call: CallbackQuery):
         await call.answer("⛔ Not authorized", show_alert=True)
         return
     await call.answer()
-    await call.message.edit_text(await _panel(), reply_markup=kb_admin(), parse_mode="HTML")
+    await _edit(call.message, await _panel(), reply_markup=kb_admin(), parse_mode="HTML")
 
 
 @router.message(Command("broadcast"))

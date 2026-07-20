@@ -14,7 +14,7 @@ Example (admin-only):
 """
 from telethon import TelegramClient
 
-from config import config
+from core.config import config
 
 # Local session file (safe to keep in the workspace).
 SESSION = "growixx_session"

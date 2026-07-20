@@ -18,7 +18,7 @@ import json
 
 import httpx
 
-from config import config
+from core.config import config
 
 
 class TigerSMSError(Exception):

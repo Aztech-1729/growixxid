@@ -4,20 +4,31 @@ import html
 
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import config
-from db import add_order, get_user_orders, update_order, get_wallet, deduct_wallet
-from keyboards import kb_back, kb_confirm, kb_countries, kb_order_wp, kb_service
-from otp_poller import poll_and_update
-from vnhotp import VNHOTPError, vnhotp
+from core.config import config
+from core.db import (add_order, get_user_orders, update_order, get_wallet, deduct_wallet, 
+                get_currency_pref, count_user_orders)
+from ui.keyboards import kb_back, kb_confirm, kb_countries, kb_order_wp, kb_service, kb_myorders
+from utils.otp_poller import poll_and_update
+from utils.rates import usd_to_inr
+from services.vnhotp import VNHOTPError, vnhotp
 
 router = Router()
 
-# In-memory catalog cache per user (single process). Refreshed each time the
-# service is opened, so prices/stock stay current.
 CACHE: dict = {}
+
+
+async def _edit(msg, text, reply_markup=None, parse_mode=None):
+    try:
+        await msg.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest:
+        try:
+            await msg.edit_caption(caption=text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except TelegramBadRequest:
+            pass
 
 
 async def _countries(service: str, user_id: int) -> list:
@@ -38,7 +49,14 @@ async def _countries(service: str, user_id: int) -> list:
 @router.callback_query(F.data == "catalog")
 async def cb_catalog(call: CallbackQuery):
     await call.answer()
-    await call.message.edit_text("🛰 Select a service:", reply_markup=kb_service())
+    try:
+        await call.message.edit_text("🛰 Select a service:", reply_markup=kb_service())
+    except TelegramBadRequest:
+        try:
+            await call.message.edit_caption(
+                caption="🛰 Select a service:", reply_markup=kb_service())
+        except TelegramBadRequest:
+            pass
 
 
 @router.callback_query(F.data.startswith("svc:"))
@@ -48,27 +66,54 @@ async def cb_svc(call: CallbackQuery):
     try:
         countries = await _countries(service, call.from_user.id)
     except VNHOTPError as e:
-        await call.message.edit_text(f"❌ {e}", reply_markup=kb_back("menu"))
+        await _edit(call.message, f"❌ {e}", reply_markup=kb_back("menu"))
         return
     if not countries:
-        await call.message.edit_text(
-            "😕 No countries available right now for this service.",
-            reply_markup=kb_back("catalog"))
+        await _edit(call.message, "😕 No countries available right now for this service.",
+                    reply_markup=kb_back("catalog"))
         return
-    await call.message.edit_text(
-        f"🌍 Choose a country — <b>{service.upper()}</b>:",
-        reply_markup=kb_countries(service, countries, 0), parse_mode="HTML")
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
+    
+    from keyboards import CUSTOM_EMOJIS
+    display_name = "Telegram" if service == "tg" else service.upper()
+    emoji_tag = "🌍"
+    if service in CUSTOM_EMOJIS:
+        emoji_tag = f"<tg-emoji emoji-id='{CUSTOM_EMOJIS[service][1]}'>{CUSTOM_EMOJIS[service][0]}</tg-emoji>"
+        
+    await _edit(call.message,
+        f"{emoji_tag} <b>Choose a country</b> — <b>{display_name}</b>:",
+        reply_markup=kb_countries(service, countries, 0, currency, rate, "name"), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("ctry:"))
 async def cb_ctry(call: CallbackQuery):
     await call.answer()
-    _, service, page = call.data.split(":")
-    page = int(page)
+    parts = call.data.split(":")
+    service = parts[1]
+    page = int(parts[2])
+    sort_mode = parts[3] if len(parts) > 3 else "name"
+    
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
     countries = CACHE.get(call.from_user.id, {}).get(service) or await _countries(service, call.from_user.id)
-    await call.message.edit_text(
-        f"🌍 Choose a country — <b>{service.upper()}</b>:",
-        reply_markup=kb_countries(service, countries, page), parse_mode="HTML")
+    
+    sorted_countries = list(countries)
+    if sort_mode == "cheap":
+        # Handle cases where price might be None
+        sorted_countries.sort(key=lambda c: float(c["price"]) if c.get("price") is not None else float('inf'))
+    elif sort_mode == "qty":
+        # Handle cases where qty might be None
+        sorted_countries.sort(key=lambda c: int(c["qty"]) if c.get("qty") is not None else -1, reverse=True)
+        
+    from keyboards import CUSTOM_EMOJIS
+    display_name = "Telegram" if service == "tg" else service.upper()
+    emoji_tag = "🌍"
+    if service in CUSTOM_EMOJIS:
+        emoji_tag = f"<tg-emoji emoji-id='{CUSTOM_EMOJIS[service][1]}'>{CUSTOM_EMOJIS[service][0]}</tg-emoji>"
+        
+    await _edit(call.message, f"{emoji_tag} <b>Choose a country</b> — <b>{display_name}</b>:",
+                reply_markup=kb_countries(service, sorted_countries, page, currency, rate, sort_mode), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("buy:"))
@@ -88,25 +133,32 @@ async def cb_buy(call: CallbackQuery):
                 price = d.get("price")
             name = info["name"] if info else code
         except VNHOTPError as e:
-            await call.message.edit_text(f"❌ {e}", reply_markup=kb_back("catalog"))
+            await _edit(call.message, f"❌ {e}", reply_markup=kb_back("catalog"))
             return
         info = {"code": code, "name": name, "price": price}
 
     price = info["price"]
-    inr = float(price) * config.USD_INR_RATE
+    currency = await get_currency_pref(call.from_user.id)
+    rate = await usd_to_inr()
+    inr = float(price) * rate
+    
     stock = None
     if service != "tg":
         try:
             gp = await vnhotp.wp_get_price(service, code)
             inr = float(gp.get("price_inr") or inr)
-            stock = gp.get("stock")  # WP2 exposes live stock here
+            stock = gp.get("stock")
         except VNHOTPError:
             pass
-    stock_line = f"Stock: {stock}\n" if stock is not None else ""
-    await call.message.edit_text(
-        f"🧾 <b>Confirm Order</b>\n\nService: <b>{service.upper()}</b>\n"
-        f"Country: {info['name']}\n{stock_line}Price: ₹{inr:.2f}",
-        reply_markup=kb_confirm(service, code, info["name"], f"{inr:.2f}"), parse_mode="HTML")
+            
+    stock_line = f"<b>Stock:</b> {stock}\n" if stock is not None else ""
+    display_price = f"${float(price):.2f}" if currency == "USD" else f"₹{inr:.2f}"
+    
+    await _edit(call.message,
+                f"🧾 <b>Confirm Order</b>\n\n<b>Service:</b> {service.upper()}\n"
+                f"<b>Country:</b> {info['name']}\n{stock_line}<b>Price:</b> {display_price}",
+                reply_markup=kb_confirm(service, code, info["name"], f"{float(price):.2f}" if currency == "USD" else f"{inr:.2f}", currency),
+                parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("confirm:"))
@@ -114,7 +166,6 @@ async def cb_confirm(call: CallbackQuery):
     await call.answer()
     _, service, code = call.data.split(":")
 
-    # 1) resolve INR price for the wallet check
     try:
         if service == "tg":
             ci = await vnhotp.tg_country_info(code)
@@ -125,21 +176,20 @@ async def cb_confirm(call: CallbackQuery):
             inr = float(gp.get("price_inr") or (gp.get("price", 0) * config.USD_INR_RATE))
             name = code
     except VNHOTPError as e:
-        await call.message.edit_text(f"❌ {e}", reply_markup=kb_back("catalog"))
+        await _edit(call.message, f"❌ {e}", reply_markup=kb_back("catalog"))
         return
 
     wallet = await get_wallet(call.from_user.id)
     if wallet < inr:
         b = InlineKeyboardBuilder()
         b.button(text="💰 Add Funds", callback_data="addfunds", style=ButtonStyle.SUCCESS)
-        b.button(text="🔙 Back", callback_data="catalog", style=ButtonStyle.DANGER)
+        b.button(text="Back", callback_data="catalog", style=ButtonStyle.DANGER, icon_custom_emoji_id="5352759161945867747")
         b.adjust(1)
-        await call.message.edit_text(
-            f"💡 Price: ₹{inr:.2f}\nYour wallet: ₹{wallet:.2f}\n\nPlease add funds to continue.",
-            reply_markup=b.as_markup(), parse_mode="HTML")
+        await _edit(call.message,
+                    f"💡 Price: ₹{inr:.2f}\nYour wallet: ₹{wallet:.2f}\n\nPlease add funds to continue.",
+                    reply_markup=b.as_markup(), parse_mode="HTML")
         return
 
-    # 2) place the order with the provider
     try:
         if service == "tg":
             d = await vnhotp.tg_place_order(code)
@@ -151,42 +201,59 @@ async def cb_confirm(call: CallbackQuery):
             d = await vnhotp.wp_place_order(service, code)
             ref = d["order_id"]; number = d["phone_number"]; price = d["price"]; name = code
     except VNHOTPError as e:
-        await call.message.edit_text(
-            f"❌ Order failed: {html.escape(str(e))}",
-            reply_markup=kb_back("catalog"))
+        await _edit(call.message, f"❌ Order failed: {html.escape(str(e))}",
+                    reply_markup=kb_back("catalog"))
         return
 
-    # 3) success -> deduct wallet, log order, start OTP polling
     await deduct_wallet(call.from_user.id, inr, f"order {service} {code}")
     await add_order(
         user_id=call.from_user.id, service=service, country_code=code,
         country_name=name, number=number, price=price, order_ref=ref, status="pending")
 
+    currency = await get_currency_pref(call.from_user.id)
+    display_price = f"${price:.2f}" if currency == "USD" else f"₹{inr:.2f}"
+    
     kb = kb_order_wp(service, ref) if service != "tg" else kb_back("menu")
-    await call.message.edit_text(
-        f"⏳ Order placed! Waiting for OTP…\n\nService: <b>{service.upper()}</b>\n"
-        f"Number: <code>{number}</code>\nCharged: ₹{inr:.2f}",
-        reply_markup=kb, parse_mode="HTML")
+    await _edit(call.message,
+                f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n<b>Service:</b> {service.upper()}\n"
+                f"<b>Number:</b> <code>{number}</code>\n<b>Charged:</b> {display_price}",
+                reply_markup=kb, parse_mode="HTML")
 
     asyncio.create_task(
         _safe_poll(call.bot, call.from_user.id, call.message.chat.id,
                    call.message.message_id, service, ref, number))
 
 
-@router.callback_query(F.data == "myorders")
+@router.callback_query(F.data.startswith("myorders"))
 async def cb_myorders(call: CallbackQuery):
     await call.answer()
-    orders = await get_user_orders(call.from_user.id, limit=10)
-    if not orders:
-        await call.message.edit_text("📭 You have no orders yet.", reply_markup=kb_back("menu"))
+    parts = call.data.split(":")
+    page = int(parts[1]) if len(parts) > 1 else 0
+    page_size = 5
+    
+    orders = await get_user_orders(call.from_user.id, skip=page * page_size, limit=page_size)
+    total = await count_user_orders(call.from_user.id)
+    
+    if not orders and page == 0:
+        await _edit(call.message, "📭 You have no orders yet.", reply_markup=kb_back("menu"))
         return
+        
     text = "📜 <b>Your recent orders</b>\n\n"
     for o in orders:
-        text += f"• {o['service'].upper()} {o['country_code']} — <code>{o['number']}</code>\n  Status: {o['status']}"
+        svc_name = o['service'].upper()
+        if ":" in svc_name:
+            # e.g., TIGER:TG
+            svc_name = svc_name
+        else:
+            svc_name = f"{svc_name} {o['country_code']}"
+            
+        text += f"• <b>{svc_name}</b> — <code>+{o['number']}</code>\n  <b>Status:</b> {o['status']}"
         if o.get("otp"):
-            text += f" | OTP: <b>{o['otp']}</b>"
+            text += f" | <b>OTP:</b> <b>{o['otp']}</b>"
         text += "\n"
-    await call.message.edit_text(text, reply_markup=kb_back("menu"), parse_mode="HTML")
+        
+    has_more = (page + 1) * page_size < total
+    await _edit(call.message, text, reply_markup=kb_myorders(page, has_more), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("cancel:"))
@@ -196,11 +263,11 @@ async def cb_cancel(call: CallbackQuery):
     try:
         res = await vnhotp.wp_cancel_order(service, ref)
         await update_order(ref, status="cancelled", refund=str(res.get("message", "")))
-        await call.message.edit_text(
-            f"✅ Order cancelled & refunded.\n{res.get('message', '')}",
-            reply_markup=kb_back("menu"))
+        await _edit(call.message,
+                    f"✅ Order cancelled & refunded.\n{res.get('message', '')}",
+                    reply_markup=kb_back("menu"))
     except VNHOTPError as e:
-        await call.message.edit_text(f"❌ {e}", reply_markup=kb_back("menu"))
+        await _edit(call.message, f"❌ {e}", reply_markup=kb_back("menu"))
 
 
 async def _safe_poll(bot, user_id, chat_id, message_id, service, ref, number):

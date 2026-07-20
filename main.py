@@ -3,14 +3,15 @@ import asyncio
 
 from aiohttp import web
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 
-from config import config
-from db import _client as mongo_client, init_indexes
+from core.config import config
+from core.db import _client as mongo_client, init_indexes
 from handlers import setup_handlers
-from middlewares import ForceJoinMiddleware
-from suppliers import tigersms
-from vnhotp import vnhotp
-from web import make_app, set_bot
+from core.middlewares import ForceJoinMiddleware
+from services.suppliers import tigersms
+from services.vnhotp import vnhotp
+from api.web import make_app, set_bot
 
 
 async def main() -> None:
@@ -22,7 +23,7 @@ async def main() -> None:
         raise SystemExit("VNHOTP_API_KEY is missing in .env")
 
     bot = Bot(token=config.BOT_TOKEN)
-    dp = Dispatcher()
+    dp = Dispatcher(storage=MemoryStorage())
 
     # Force users to join the channel before using the bot
     dp.update.middleware(ForceJoinMiddleware())
@@ -41,6 +42,7 @@ async def main() -> None:
 
     print("✅ GROWIXX bot started. Polling...")
     try:
+        await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
     finally:
         await bot.session.close()

@@ -6,8 +6,8 @@ Providers wired here:
 from dataclasses import dataclass
 from typing import Optional
 
-from tigersms import tigersms, TigerSMSError
-from flags import flag_from_name
+from services.tigersms import tigersms, TigerSMSError
+from utils.flags import flag_from_name
 
 
 @dataclass
@@ -26,8 +26,19 @@ SUPPLIERS = {
         "client": tigersms,
         "error": TigerSMSError,
         "services": [
-            {"key": "tg", "label": "📱 Telegram", "native": "tg", "cancellable": True},
-            {"key": "wa", "label": "💬 WhatsApp", "native": "wa", "cancellable": True},
+            {"key": "wb", "label": "💬 WeChat", "native": "wb", "cancellable": True},
+            {"key": "vk", "label": "📘 VKontakte", "native": "vk", "cancellable": True},
+            {"key": "ok", "label": "👥 Odnoklassniki", "native": "ok", "cancellable": True},
+            {"key": "go", "label": "🔍 Google", "native": "go", "cancellable": True},
+            {"key": "ya", "label": "📡 Yandex", "native": "ya", "cancellable": True},
+            {"key": "av", "label": "🏪 Avito", "native": "av", "cancellable": True},
+            {"key": "ma", "label": "📧 Mail.ru", "native": "ma", "cancellable": True},
+            {"key": "fb", "label": "📘 Facebook", "native": "fb", "cancellable": True},
+            {"key": "ub", "label": "🚗 Uber", "native": "ub", "cancellable": True},
+            {"key": "sn", "label": "👻 Snapchat", "native": "sn", "cancellable": True},
+            {"key": "vi", "label": "📞 Viber", "native": "vi", "cancellable": True},
+            {"key": "me", "label": "💬 Messenger", "native": "me", "cancellable": True},
+            {"key": "sk", "label": "📞 Skype", "native": "sk", "cancellable": True},
         ],
     },
 }

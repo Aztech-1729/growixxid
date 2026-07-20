@@ -10,7 +10,7 @@ rate-limiting does not crash a handler with a raw httpx exception.
 import asyncio
 import httpx
 
-from config import config
+from core.config import config
 
 
 class VNHOTPError(Exception):
