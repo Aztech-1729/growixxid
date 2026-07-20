@@ -51,7 +51,7 @@ async def _panel() -> str:
             
     # Grizzly SMS
     try:
-        from grizzly_api import grizzly
+        from services.grizzly_api import grizzly
         g_bal = await grizzly.balance()
         lines.append(f"Grizzly balance: ₽ {g_bal:.2f}")
     except Exception as e:
@@ -92,7 +92,7 @@ async def cmd_broadcast(msg: Message):
         await msg.answer("Usage: /broadcast <message>")
         return
     text = parts[1]
-    from db import get_all_users
+    from core.db import get_all_users
     users = await get_all_users()
     sent = 0
     for u in users:
