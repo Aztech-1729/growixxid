@@ -22,7 +22,8 @@ async def razorpay_callback(request: web.Request):
     return web.Response(
         text="✅ Payment received! Your wallet will be credited automatically "
              "within a few seconds.",
-        content_type="text/html; charset=utf-8")
+        content_type="text/html",
+        charset="utf-8")
 
 
 async def razorpay_webhook(request: web.Request):
