@@ -169,7 +169,7 @@ async def cb_grzsvc(call: CallbackQuery):
     elif sort_mode == "qty":
         sorted_items.sort(key=lambda o: o["stock"], reverse=True)
         
-    from keyboards import CUSTOM_EMOJIS
+    from ui.keyboards import CUSTOM_EMOJIS
     emoji_tag = "🌍"
     if service_code in CUSTOM_EMOJIS:
         emoji_tag = f"<tg-emoji emoji-id='{CUSTOM_EMOJIS[service_code][1]}'>{CUSTOM_EMOJIS[service_code][0]}</tg-emoji>"

@@ -129,7 +129,7 @@ async def process_ctry_search(msg: Message, state: FSMContext):
         return
         
     from handlers.catalog import CACHE, _countries
-    from keyboards import kb_countries
+    from ui.keyboards import kb_countries
     
     countries = CACHE.get(msg.from_user.id, {}).get(service) or await _countries(service, msg.from_user.id)
     

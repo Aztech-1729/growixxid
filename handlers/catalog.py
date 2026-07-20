@@ -75,7 +75,7 @@ async def cb_svc(call: CallbackQuery):
     currency = await get_currency_pref(call.from_user.id)
     rate = await usd_to_inr()
     
-    from keyboards import CUSTOM_EMOJIS
+    from ui.keyboards import CUSTOM_EMOJIS
     display_name = "Telegram" if service == "tg" else service.upper()
     emoji_tag = "🌍"
     if service in CUSTOM_EMOJIS:
@@ -106,7 +106,7 @@ async def cb_ctry(call: CallbackQuery):
         # Handle cases where qty might be None
         sorted_countries.sort(key=lambda c: int(c["qty"]) if c.get("qty") is not None else -1, reverse=True)
         
-    from keyboards import CUSTOM_EMOJIS
+    from ui.keyboards import CUSTOM_EMOJIS
     display_name = "Telegram" if service == "tg" else service.upper()
     emoji_tag = "🌍"
     if service in CUSTOM_EMOJIS:
