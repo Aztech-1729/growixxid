@@ -6,6 +6,8 @@ fixed amount) -> bot sends the QR image -> user scans & pays via any UPI app
 -> we verify the HMAC signature and credit the wallet.
 """
 import time
+import hashlib
+import hmac
 
 import razorpay
 
@@ -40,16 +42,17 @@ def create_qr_code(user_id: int, amount_inr: float, note: str = "Wallet top-up")
 
 def verify_webhook(body, signature: str) -> bool:
     secret = config.RAZORPAY_WEBHOOK_SECRET
-    # Dev/test mode: no secret configured -> accept but flag as unverified.
     if not secret or secret == "xxxxxxxxxxxx":
         print("⚠️  Webhook signature NOT verified (RAZORPAY_WEBHOOK_SECRET not set). "
               "Set it in .env before going to production.")
         return True
     try:
-        razorpay.Utility.verify_webhook_signature(
-            body.decode("utf-8") if isinstance(body, bytes) else body,
-            signature, secret)
-        return True
+        raw = body if isinstance(body, bytes) else body.encode("utf-8")
+        expected = hmac.new(
+            secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(expected, signature):
+            return True
+        raise Exception("signature mismatch")
     except Exception as e:
         print("❌ Webhook signature verification failed:", e)
         return False
