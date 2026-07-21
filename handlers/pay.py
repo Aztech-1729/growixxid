@@ -9,7 +9,6 @@ from aiogram.fsm.context import FSMContext
 
 from core.states import PayState
 
-from core.config import config
 from core.db import get_wallet, get_currency_pref
 from ui.keyboards import kb_back
 from utils.payments import create_qr_code

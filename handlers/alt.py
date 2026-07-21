@@ -9,7 +9,7 @@ import html
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery, InlineKeyboardButton
+from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from core.config import config
@@ -77,7 +77,7 @@ async def cb_alt(call: CallbackQuery):
     
     b.adjust(*sizes)
     await _edit(call.message,
-                f"🌐 <b>Other Services</b>\n<b>Choose a service:</b>",
+                "🌐 <b>Other Services</b>\n<b>Choose a service:</b>",
                 reply_markup=b.as_markup(), parse_mode="HTML")
 
 
@@ -269,7 +269,7 @@ async def cb_altcancel(call: CallbackQuery):
 async def _safe_poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number):
     try:
         await poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number)
-    except Exception as e:
+    except Exception:
         import logging
         logging.exception("Alt OTP poller failed for %s", ref)
 

@@ -1,5 +1,4 @@
 import html
-import time
 
 from aiogram import Router, F
 from aiogram.enums import ChatMemberStatus
@@ -9,7 +8,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 from core.config import config
 from core.db import register_user
-from ui.keyboards import kb_back, kb_join, kb_main
+from ui.keyboards import kb_back, kb_main
 
 router = Router()
 

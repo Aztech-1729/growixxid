@@ -3,7 +3,6 @@
    option, DANGER (red) = destructive / back / pagination nav.
 """
 from aiogram.enums import ButtonStyle
-from aiogram.types import InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from core.config import config

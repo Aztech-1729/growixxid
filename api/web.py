@@ -3,7 +3,6 @@ import json
 
 from aiohttp import web
 
-from core.config import config
 from core.db import credit_wallet
 from utils.payments import verify_webhook
 

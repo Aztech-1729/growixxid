@@ -356,7 +356,7 @@ async def cb_grzcancel(call: CallbackQuery):
 async def _safe_poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number):
     try:
         await poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number)
-    except Exception as e:
+    except Exception:
         import logging
         logging.exception("Grizzly OTP poller failed for %s", ref)
 
