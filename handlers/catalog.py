@@ -51,7 +51,11 @@ async def _countries(service: str, user_id: int) -> list:
 async def cb_catalog(call: CallbackQuery):
     await call.answer()
     active = await get_setting("active_suppliers", ["vnhotp", "tigersms", "grizzly"])
-    await _edit(call.message, "🛍 <b>Catalog</b>\n\nChoose a service:", reply_markup=kb_service(active), parse_mode="HTML")
+    text = (
+        "<tg-emoji emoji-id='4970023558068568720'>🛍️</tg-emoji> 𝐂𝐀𝐓𝐀𝐋𝐎𝐆\n\n"
+        "CHOOSE A SERVICE BELOW : <tg-emoji emoji-id='5406745015365943482'>⬇️</tg-emoji><tg-emoji emoji-id='5406745015365943482'>⬇️</tg-emoji><tg-emoji emoji-id='5406745015365943482'>⬇️</tg-emoji>"
+    )
+    await _edit(call.message, text, reply_markup=kb_service(active), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("svc:"))
