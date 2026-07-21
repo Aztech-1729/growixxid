@@ -34,7 +34,7 @@ def kb_main(is_admin: bool = False):
     b.button(text="My Wallet", callback_data="wallet", style=SUCCESS, icon_custom_emoji_id="6028517788606272241")
     b.button(text="My Orders", callback_data="myorders", style=SUCCESS, icon_custom_emoji_id="5217939515754174728")
     b.button(text="How to Use", callback_data="help", style=PRIMARY, icon_custom_emoji_id="5436113877181941026")
-    b.button(text="Customer Support", callback_data="support", style=DANGER, icon_custom_emoji_id="5870692618244984670")
+    b.button(text="Customer Support", callback_data="support", style=DANGER, icon_custom_emoji_id="5344036847871865919")
     if is_admin:
         b.button(text="Admin", callback_data="admin", style=DANGER, icon_custom_emoji_id="5870692618244984670")
     b.adjust(1)
