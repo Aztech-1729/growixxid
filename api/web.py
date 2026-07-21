@@ -5,9 +5,7 @@ from aiohttp import web
 
 from core.db import credit_wallet, get_user
 from utils.payments import verify_webhook
-from utils.rates import usd_to_inr
 from handlers.common import send_start_to_user_id
-import logging
 
 _bot = None
 PENDING_PAYMENT_MESSAGES = {}

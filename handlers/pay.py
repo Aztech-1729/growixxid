@@ -31,7 +31,7 @@ _PRESETS = (1, 10, 50, 100, 500)
 
 
 @router.callback_query(F.data == "addfunds")
-async def cb_addfunds(call: CallbackQuery):
+async def cb_addfunds(call: CallbackQuery, state: FSMContext):
     await call.answer()
     bal = await get_wallet(call.from_user.id)
     currency = await get_currency_pref(call.from_user.id)
@@ -65,6 +65,13 @@ async def cb_addfunds(call: CallbackQuery):
 
 @router.message(PayState.waiting_for_amount)
 async def process_amount(msg: Message, state: FSMContext):
+    text = msg.text.strip()
+    try:
+        amt = float(text)
+    except ValueError:
+        await msg.answer("❌ Invalid amount. Please type a valid number.", reply_markup=kb_back("addfunds"))
+        return
+        
     if amt < 1 or amt > 100000:
         await msg.answer("❌ UPI Amount must be between ₹1 and ₹100,000.", reply_markup=kb_back("addfunds"))
         return
