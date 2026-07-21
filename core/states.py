@@ -9,7 +9,6 @@ class SearchState(StatesGroup):
 
 class PayState(StatesGroup):
     waiting_for_amount = State()
-    waiting_for_crypto_coin = State()
 
 class AdminState(StatesGroup):
     waiting_for_user_id = State()

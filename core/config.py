@@ -40,9 +40,6 @@ class Config:
     WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
     START_IMAGE = os.getenv("START_IMAGE", "start.jpg")
 
-    # NOWPayments (Crypto)
-    NOWPAYMENTS_API_KEY = os.getenv("NOWPAYMENTS_API_KEY", "")
-    NOWPAYMENTS_IPN_SECRET = os.getenv("NOWPAYMENTS_IPN_SECRET", "")
 
     @property
     def channel_link(self) -> str:
