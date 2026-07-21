@@ -95,8 +95,8 @@ def kb_service(active_suppliers: list = None):
         b.button(text="3000+ Services", callback_data="grizzly:menu:0", style=SUCCESS, icon_custom_emoji_id="5282843764451195532")
         sizes.append(1)
         
-    if "tigersms" in active_suppliers:
-        b.button(text="TigerSMS", callback_data="alt:tiger", style=SUCCESS, icon_custom_emoji_id="5282843764451195532")
+    elif "tigersms" in active_suppliers:
+        b.button(text="3000+ Services", callback_data="alt:tiger", style=SUCCESS, icon_custom_emoji_id="5282843764451195532")
         sizes.append(1)
         
     # Back
