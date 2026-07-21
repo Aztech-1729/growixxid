@@ -73,7 +73,7 @@ def _get_main_menu_text(first_name: str) -> str:
         "HI 🫲<tg-emoji emoji-id='5456258317477230911'>😎</tg-emoji>🫱 —_ 𝙂𝙍𝙊𝙒𝙄𝙓𝙓 !!\n"
         "WELCOME TO <tg-emoji emoji-id='5895242866057286055'>🔘</tg-emoji>\n"
         "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
-        "𝐆𝐑𝐎𝐖𝐈𝐗𝐗 𝐎𝐓𝐓 𝐁𝐎𝐓 <tg-emoji emoji-id='5314391089514291948'>🤖</tg-emoji>\n"
+        "𝐆𝐑𝐎𝐖𝐈𝐗𝐗 𝐎𝐓𝐏 𝐁𝐎𝐓 <tg-emoji emoji-id='5314391089514291948'>🤖</tg-emoji>\n"
         "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
         "<tg-emoji emoji-id='5222444124698853913'>🔖</tg-emoji> QUICK GUIDE :\n"
         "<tg-emoji emoji-id='5346105514575025401'>▶️</tg-emoji> 𝚃𝙰𝙿 '𝚜𝚎𝚛𝚟𝚒𝚌𝚎𝚜' 𝙱𝚄𝚃𝚃𝙾𝙽.\n"
