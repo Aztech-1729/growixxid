@@ -1,9 +1,7 @@
 *.session
-.env
 bot.log
 __pycache__/
 *.pyc
 .venv/
 test_qr.png
 venv/
-.env
