@@ -3,13 +3,15 @@ import json
 
 from aiohttp import web
 
-from core.db import credit_wallet
+from core.db import credit_wallet, get_user
 from utils.payments import verify_webhook
 from utils.nowpayments import verify_ipn
 from utils.rates import usd_to_inr
+from handlers.common import send_start_to_user_id
 import logging
 
 _bot = None
+PENDING_PAYMENT_MESSAGES = {}
 
 
 def set_bot(bot) -> None:
@@ -57,10 +59,21 @@ async def _credit_from_payment(data: dict) -> None:
     await credit_wallet(user_id, amount_inr, "Razorpay top-up")
     if _bot:
         try:
+            msg_id = PENDING_PAYMENT_MESSAGES.pop(user_id, None)
+            if msg_id:
+                try:
+                    await _bot.delete_message(chat_id=user_id, message_id=msg_id)
+                except Exception:
+                    pass
+            
             await _bot.send_message(
                 user_id,
                 f"✅ <b>Payment received!</b>\n₹{amount_inr:.2f} added to your wallet.",
                 parse_mode="HTML")
+                
+            user = await get_user(user_id)
+            first_name = user.get("first_name", "User") if user else "User"
+            await send_start_to_user_id(_bot, user_id, first_name)
         except Exception:
             pass
 
@@ -98,11 +111,22 @@ async def nowpayments_webhook(request: web.Request):
             
             if _bot:
                 try:
+                    msg_id = PENDING_PAYMENT_MESSAGES.pop(user_id, None)
+                    if msg_id:
+                        try:
+                            await _bot.delete_message(chat_id=user_id, message_id=msg_id)
+                        except Exception:
+                            pass
+                            
                     await _bot.send_message(
                         user_id,
                         f"🪙 <b>Crypto Payment Confirmed!</b>\n"
                         f"${amount_usd:.2f} (₹{amount_inr:.2f}) has been added to your wallet.",
                         parse_mode="HTML")
+                        
+                    user = await get_user(user_id)
+                    first_name = user.get("first_name", "User") if user else "User"
+                    await send_start_to_user_id(_bot, user_id, first_name)
                 except Exception:
                     pass
         except Exception as e:

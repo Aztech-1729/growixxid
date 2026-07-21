@@ -32,15 +32,7 @@ async def _edit(msg, text, reply_markup=None, parse_mode=None):
 
 
 async def _send_main_menu(call_or_msg, user_id: int, first_name: str):
-    text = (
-        f"<tg-emoji emoji-id='5780560530515171033'>💎</tg-emoji> <b>𝙂𝙍𝙊𝙒𝙄𝙓𝙓 𝚸𝚪𝚵𝚳𝚰𝐔𝚳</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"Welcome, <b>{html.escape(first_name)}</b>!\n"
-        f"Your premier gateway for instant virtual numbers.\n\n"
-        f"<tg-emoji emoji-id='5330237710655306682'>📱</tg-emoji> <b>Top Services:</b> Telegram, WhatsApp, & 3000+ more!\n"
-        f"<tg-emoji emoji-id='6028517788606272241'>💰</tg-emoji> <b>Automated:</b> Get your OTPs instantly 24/7.\n\n"
-        f"<i>Tap <b>Services</b> below to begin.</i>"
-    )
+    text = _get_main_menu_text(first_name)
     kb = kb_main(user_id in config.ADMIN_IDS)
     
     try:
@@ -77,6 +69,31 @@ async def _send_main_menu(call_or_msg, user_id: int, first_name: str):
                     photo_input_fallback = config.START_IMAGE
                     
                 await call.message.answer_photo(photo=photo_input_fallback, caption=text, reply_markup=kb, parse_mode="HTML")
+
+def _get_main_menu_text(first_name: str) -> str:
+    return (
+        f"<tg-emoji emoji-id='5780560530515171033'>💎</tg-emoji> <b>𝙂𝙍𝙊𝙒𝙄𝙓𝙓 𝚸𝚪𝚵𝚳𝚰𝐔𝚳</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"Welcome, <b>{html.escape(first_name)}</b>!\n"
+        f"Your premier gateway for instant virtual numbers.\n\n"
+        f"<tg-emoji emoji-id='5330237710655306682'>📱</tg-emoji> <b>Top Services:</b> Telegram, WhatsApp, & 3000+ more!\n"
+        f"<tg-emoji emoji-id='6028517788606272241'>💰</tg-emoji> <b>Automated:</b> Get your OTPs instantly 24/7.\n\n"
+        f"<i>Tap <b>Services</b> below to begin.</i>"
+    )
+
+async def send_start_to_user_id(bot, user_id: int, first_name: str):
+    text = _get_main_menu_text(first_name)
+    kb = kb_main(user_id in config.ADMIN_IDS)
+    try:
+        with open(config.START_IMAGE, "rb") as f:
+            photo_data = f.read()
+        photo_input = BufferedInputFile(photo_data, filename="start.jpg")
+    except Exception:
+        photo_input = config.START_IMAGE
+    try:
+        await bot.send_photo(chat_id=user_id, photo=photo_input, caption=text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        pass
 
 
 @router.message(Command("start"))

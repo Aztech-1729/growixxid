@@ -15,6 +15,7 @@ from utils.payments import create_qr_code
 from utils.nowpayments import create_payment, get_min_amount
 from utils.rates import RateFetchError, usd_to_inr
 from aiogram.exceptions import TelegramBadRequest
+from api.web import PENDING_PAYMENT_MESSAGES
 
 router = Router()
 
@@ -109,10 +110,16 @@ async def process_amount(msg: Message, state: FSMContext):
             pass
             
         try:
-            await msg.answer_photo(
+            b = InlineKeyboardBuilder()
+            b.button(text="Cancel", callback_data="menu", style=ButtonStyle.DANGER)
+            b.adjust(1)
+            
+            sent_msg = await msg.answer_photo(
                 URLInputFile(qr_url),
                 caption=f"💰 <b>Add ₹{int(amt)}</b>\n\nScan this QR with any UPI app to pay.\nYour wallet will be credited automatically once confirmed.",
+                reply_markup=b.as_markup(),
                 parse_mode="HTML")
+            PENDING_PAYMENT_MESSAGES[msg.from_user.id] = sent_msg.message_id
         except Exception as e:
             await msg.answer(f"❌ Failed to load QR: {html.escape(str(e))}", reply_markup=kb_back("addfunds"))
 
@@ -163,11 +170,11 @@ async def cb_crypto_coin(call: CallbackQuery, state: FSMContext):
         
         b = InlineKeyboardBuilder()
         b.button(text="I have paid ✅", callback_data="wallet", style=ButtonStyle.SUCCESS)
-        b.button(text="Cancel", callback_data="addfunds", style=ButtonStyle.DANGER)
+        b.button(text="Cancel", callback_data="menu", style=ButtonStyle.DANGER)
         b.adjust(1)
         
         try:
-            await call.message.answer_photo(
+            sent_msg = await call.message.answer_photo(
                 URLInputFile(qr_url),
                 caption=f"🪙 <b>Crypto Payment ({coin.upper()})</b>\n\n"
                         f"Please send EXACTLY:\n"
@@ -177,8 +184,9 @@ async def cb_crypto_coin(call: CallbackQuery, state: FSMContext):
                         f"⏳ <b>Waiting for payment...</b>\nYour wallet will be credited automatically once the network confirms your transaction.",
                 reply_markup=b.as_markup(), parse_mode="HTML"
             )
+            PENDING_PAYMENT_MESSAGES[call.from_user.id] = sent_msg.message_id
         except TelegramBadRequest:
-            await call.message.answer(
+            sent_msg = await call.message.answer(
                 f"🪙 <b>Crypto Payment ({coin.upper()})</b>\n\n"
                 f"Please send EXACTLY:\n"
                 f"<code>{pay_amount}</code> <b>{coin.upper()}</b>\n\n"
@@ -187,6 +195,7 @@ async def cb_crypto_coin(call: CallbackQuery, state: FSMContext):
                 f"⏳ <b>Waiting for payment...</b>\nYour wallet will be credited automatically once the network confirms your transaction.",
                 reply_markup=b.as_markup(), parse_mode="HTML"
             )
+            PENDING_PAYMENT_MESSAGES[call.from_user.id] = sent_msg.message_id
             
     except Exception as e:
         await status_msg.edit_text(f"❌ Failed to generate crypto payment: {html.escape(str(e))}", reply_markup=kb_back("addfunds"))
