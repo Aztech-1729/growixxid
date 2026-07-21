@@ -14,44 +14,59 @@ import time
 from core.config import config
 
 
-async def create_invoice(user_id: int, amount_usd: float, description: str = "Wallet Top-up"):
+async def get_min_amount(coin: str, fiat_currency: str = "usd") -> float:
     """
-    Creates a NOWPayments invoice.
-    Returns (invoice_url, payment_id).
+    Fetches the minimum allowed deposit amount for a specific coin in fiat.
+    Returns the amount as a float.
+    """
+    if not config.NOWPAYMENTS_API_KEY:
+        return 0.0
+        
+    url = f"https://api.nowpayments.io/v1/min-amount?currency_from={coin}&currency_to={fiat_currency}"
+    headers = {"x-api-key": config.NOWPAYMENTS_API_KEY}
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as resp:
+            data = await resp.json()
+            if resp.status == 200:
+                return float(data.get("fiat_equivalent", 0.0))
+            return 0.0
+
+
+async def create_payment(user_id: int, amount_usd: float, coin: str, description: str = "Wallet Top-up"):
+    """
+    Creates a direct NOWPayments transaction for a specific coin.
+    Returns (pay_address, pay_amount, payment_id).
     """
     if not config.NOWPAYMENTS_API_KEY:
         raise RuntimeError("NOWPAYMENTS_API_KEY not configured.")
         
-    url = "https://api.nowpayments.io/v1/invoice"
+    url = "https://api.nowpayments.io/v1/payment"
     
     headers = {
         "x-api-key": config.NOWPAYMENTS_API_KEY,
         "Content-Type": "application/json"
     }
     
-    # We use order_id to store the user_id so the IPN callback knows who to credit.
-    # We can format it as "uid_{user_id}_{timestamp}" to keep it unique, but just user_id is fine 
-    # since NOWPayments generates its own unique payment_id.
     order_ref = f"U{user_id}-{int(time.time())}"
     
     payload = {
         "price_amount": float(amount_usd),
         "price_currency": "usd",
+        "pay_currency": coin.lower(),
         "order_id": order_ref,
         "order_description": description,
-        "success_url": f"https://t.me/{config.BOT_USERNAME}"
     }
     
-    # Send request
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload, headers=headers) as resp:
             data = await resp.json()
             
             if resp.status not in (200, 201):
-                logging.error(f"NOWPayments create_invoice failed: {data}")
+                logging.error(f"NOWPayments create_payment failed: {data}")
                 raise Exception(data.get("message", "API Error"))
                 
-            return data.get("invoice_url"), data.get("id")
+            return data.get("pay_address"), data.get("pay_amount"), data.get("payment_id")
 
 
 def verify_ipn(body: str | bytes, signature: str) -> bool:

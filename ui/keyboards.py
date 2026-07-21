@@ -59,6 +59,17 @@ def kb_add_funds_choice():
     return b.as_markup()
 
 
+def kb_crypto_coins():
+    b = InlineKeyboardBuilder()
+    b.button(text="USDT (TRC20)", callback_data="crypto_coin:usdttrc20", style=SUCCESS)
+    b.button(text="Tron (TRX)", callback_data="crypto_coin:trx", style=SUCCESS)
+    b.button(text="Litecoin (LTC)", callback_data="crypto_coin:ltc", style=SUCCESS)
+    b.button(text="Bitcoin (BTC)", callback_data="crypto_coin:btc", style=SUCCESS)
+    b.button(text="Back", callback_data="addfunds", style=DANGER, icon_custom_emoji_id="5352759161945867747")
+    b.adjust(2, 2, 1)
+    return b.as_markup()
+
+
 def kb_service(active_suppliers: list = None):
     if active_suppliers is None:
         active_suppliers = ["vnhotp", "tigersms", "grizzly"]
