@@ -8,6 +8,7 @@ from typing import Optional
 
 from services.tigersms import tigersms, TigerSMSError
 from utils.flags import flag_from_name
+from core.db import get_setting
 
 
 @dataclass
@@ -58,6 +59,7 @@ async def get_offerings(sid: str, service_key: str) -> list:
 async def _tiger_offerings(service_key: str) -> list:
     svc = supplier_service("tiger", service_key)
     try:
+        margin = float(await get_setting("global_margin", 0.0))
         prices = await tigersms.prices(service_key)
         countries = await tigersms.countries(service_key)
     except TigerSMSError as e:
@@ -76,7 +78,7 @@ async def _tiger_offerings(service_key: str) -> list:
         out.append(Offering(
             id=str(cid),
             label=f"{flag} {eng_name}",
-            price_usd=float(d["cost"]),
+            price_usd=float(d["cost"]) * (1 + margin / 100),
             stock=count,
             meta={"native": svc["native"], "cancellable": svc["cancellable"]},
         ))
@@ -89,8 +91,9 @@ async def buy(sid: str, service_key: str, item_id: str) -> dict:
     if sid == "tiger":
         svc = supplier_service("tiger", service_key)
         aid, number = await tigersms.get_number(svc["native"], item_id)
+        margin = float(await get_setting("global_margin", 0.0))
         prices = await tigersms.prices(service_key, item_id)
-        cost = float(prices[item_id][service_key]["cost"])
+        cost = float(prices[item_id][service_key]["cost"]) * (1 + margin / 100)
         return {
             "ref": aid,
             "number": number,

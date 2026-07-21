@@ -9,3 +9,8 @@ class SearchState(StatesGroup):
 
 class PayState(StatesGroup):
     waiting_for_amount = State()
+
+class AdminState(StatesGroup):
+    waiting_for_user_id = State()
+    waiting_for_balance_change = State()
+    waiting_for_margin = State()

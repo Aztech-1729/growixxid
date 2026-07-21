@@ -51,34 +51,53 @@ def kb_wallet(currency: str):
     return b.as_markup()
 
 
-def kb_service():
+def kb_service(active_suppliers: list = None):
+    if active_suppliers is None:
+        active_suppliers = ["vnhotp", "tigersms", "grizzly"]
+        
     b = InlineKeyboardBuilder()
+    sizes = []
     
-    # Native Telegram
-    b.button(text="Telegram", callback_data="svc:tg", style=SUCCESS, icon_custom_emoji_id="5330237710655306682")
+    # Native Telegram (VNHOTP)
+    if "vnhotp" in active_suppliers:
+        b.button(text="Telegram", callback_data="svc:tg", style=SUCCESS, icon_custom_emoji_id="5330237710655306682")
+        sizes.append(1)
     
     # Grizzly specific services
-    b.button(text="WhatsApp", callback_data="grzsvc:wa:0", style=SUCCESS, icon_custom_emoji_id="5334998226636390258")
-    b.button(text="Instagram", callback_data="grzsvc:ig:0", style=SUCCESS, icon_custom_emoji_id="5319160079465857105")
-    b.button(text="Facebook", callback_data="grzsvc:fb:0", style=SUCCESS, icon_custom_emoji_id="5323261730283863478")
-    b.button(text="Blinkit", callback_data="grzsvc:lin:0", style=SUCCESS, icon_custom_emoji_id="5350383177447779958")
-    
-    b.button(text="Zomato", callback_data="grzsvc:dy:0", style=SUCCESS, icon_custom_emoji_id="5334671517064117716")
-    b.button(text="Snapchat", callback_data="grzsvc:fu:0", style=SUCCESS, icon_custom_emoji_id="5330248916224983855")
-    b.button(text="Zepto", callback_data="grzsvc:zpt:0", style=SUCCESS, icon_custom_emoji_id="5044544625088398868")
-    
-    b.button(text="Swiggy", callback_data="grzsvc:jx:0", style=SUCCESS, icon_custom_emoji_id="6292090383849493316")
-    b.button(text="Gmail", callback_data="grzsvc:go:0", style=SUCCESS, icon_custom_emoji_id="5796209712009581332")
-    b.button(text="BigBasket", callback_data="grzsvc:aqj:0", style=SUCCESS, icon_custom_emoji_id="5381929914100369265")
-    b.button(text="Jio Mart", callback_data="grzsvc:aay:0", style=SUCCESS, icon_custom_emoji_id="5345961362587670316")
-    
-    # 3000+ Services
-    b.button(text="3000+ Services", callback_data="grizzly:menu:0", style=SUCCESS, icon_custom_emoji_id="5282843764451195532")
-    
+    if "grizzly" in active_suppliers:
+        b.button(text="WhatsApp", callback_data="grzsvc:wa:0", style=SUCCESS, icon_custom_emoji_id="5334998226636390258")
+        b.button(text="Instagram", callback_data="grzsvc:ig:0", style=SUCCESS, icon_custom_emoji_id="5319160079465857105")
+        sizes.append(2)
+        
+        b.button(text="Facebook", callback_data="grzsvc:fb:0", style=SUCCESS, icon_custom_emoji_id="5323261730283863478")
+        b.button(text="Blinkit", callback_data="grzsvc:lin:0", style=SUCCESS, icon_custom_emoji_id="5350383177447779958")
+        b.button(text="Zomato", callback_data="grzsvc:dy:0", style=SUCCESS, icon_custom_emoji_id="5334671517064117716")
+        sizes.append(3)
+        
+        b.button(text="Snapchat", callback_data="grzsvc:fu:0", style=SUCCESS, icon_custom_emoji_id="5330248916224983855")
+        b.button(text="Zepto", callback_data="grzsvc:zpt:0", style=SUCCESS, icon_custom_emoji_id="5044544625088398868")
+        b.button(text="Swiggy", callback_data="grzsvc:jx:0", style=SUCCESS, icon_custom_emoji_id="6292090383849493316")
+        sizes.append(3)
+        
+        b.button(text="Gmail", callback_data="grzsvc:go:0", style=SUCCESS, icon_custom_emoji_id="5796209712009581332")
+        b.button(text="BigBasket", callback_data="grzsvc:aqj:0", style=SUCCESS, icon_custom_emoji_id="5381929914100369265")
+        b.button(text="Jio Mart", callback_data="grzsvc:aay:0", style=SUCCESS, icon_custom_emoji_id="5345961362587670316")
+        sizes.append(3)
+        
+        b.button(text="3000+ Services", callback_data="grizzly:menu:0", style=SUCCESS, icon_custom_emoji_id="5282843764451195532")
+        sizes.append(1)
+        
+    if "tigersms" in active_suppliers:
+        b.button(text="TigerSMS", callback_data="alt:tiger", style=SUCCESS, icon_custom_emoji_id="5282843764451195532")
+        sizes.append(1)
+        
     # Back
     b.button(text="Back", callback_data="menu", style=DANGER, icon_custom_emoji_id="5352759161945867747")
+    sizes.append(1)
     
-    b.adjust(1, 2, 3, 3, 3, 1, 1)
+    b.adjust(*sizes)
+    
+
     return b.as_markup()
 
 
@@ -195,6 +214,31 @@ def kb_back(callback: str = "menu"):
 def kb_admin():
     b = InlineKeyboardBuilder()
     b.button(text="🔄 Refresh", callback_data="admin", style=PRIMARY)
+    b.button(text="👥 User Lookup", callback_data="admin_user_lookup", style=SECONDARY)
+    b.button(text="⚙️ Margin %", callback_data="admin_margin", style=SECONDARY)
+    b.button(text="🔌 Suppliers", callback_data="admin_suppliers", style=SECONDARY)
+    b.button(text="📊 Sales Report", callback_data="admin_sales", style=SECONDARY)
+    b.button(text="❌ Failed Orders", callback_data="admin_failed", style=SECONDARY)
     b.button(text="Back", callback_data="menu", style=DANGER, icon_custom_emoji_id="5352759161945867747")
+    b.adjust(1, 2, 2, 1, 1)
+    return b.as_markup()
+
+def kb_admin_user(user_id: int, is_banned: bool):
+    b = InlineKeyboardBuilder()
+    b.button(text="💰 Manage Balance", callback_data=f"admin_manage_bal:{user_id}", style=PRIMARY)
+    if is_banned:
+        b.button(text="✅ Unban User", callback_data=f"admin_ban_toggle:{user_id}", style=SUCCESS)
+    else:
+        b.button(text="🚫 Ban User", callback_data=f"admin_ban_toggle:{user_id}", style=DANGER)
+    b.button(text="Back", callback_data="admin", style=DANGER, icon_custom_emoji_id="5352759161945867747")
+    b.adjust(1, 1, 1)
+    return b.as_markup()
+
+def kb_admin_suppliers(active_list: list):
+    b = InlineKeyboardBuilder()
+    for s in ["vnhotp", "tigersms", "grizzly"]:
+        status = "✅" if s in active_list else "❌"
+        b.button(text=f"{status} {s.upper()}", callback_data=f"admin_sup_toggle:{s}")
+    b.button(text="Back", callback_data="admin", style=DANGER, icon_custom_emoji_id="5352759161945867747")
     b.adjust(1)
     return b.as_markup()

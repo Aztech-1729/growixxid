@@ -10,7 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from core.config import config
 from core.db import (add_order, get_user_orders, update_order, get_wallet, deduct_wallet, 
-                get_currency_pref, count_user_orders)
+                get_currency_pref, count_user_orders, get_setting)
 from ui.keyboards import kb_back, kb_confirm, kb_countries, kb_order_wp, kb_service, kb_myorders
 from utils.otp_poller import poll_and_update
 from utils.rates import usd_to_inr
@@ -32,6 +32,7 @@ async def _edit(msg, text, reply_markup=None, parse_mode=None):
 
 
 async def _countries(service: str, user_id: int) -> list:
+    margin = float(await get_setting("global_margin", 0.0))
     if service == "tg":
         countries = await vnhotp.tg_countries()
     else:
@@ -39,7 +40,7 @@ async def _countries(service: str, user_id: int) -> list:
         countries = [{
             "code": c["code"].upper(),
             "name": c["name"],
-            "price": None,
+            "price": float(c["price"]) * (1 + margin / 100) if c.get("price") is not None else None,
             "qty": c.get("count"),
         } for c in raw]
     CACHE.setdefault(user_id, {})[service] = countries
@@ -49,14 +50,8 @@ async def _countries(service: str, user_id: int) -> list:
 @router.callback_query(F.data == "catalog")
 async def cb_catalog(call: CallbackQuery):
     await call.answer()
-    try:
-        await call.message.edit_text("🛰 Select a service:", reply_markup=kb_service())
-    except TelegramBadRequest:
-        try:
-            await call.message.edit_caption(
-                caption="🛰 Select a service:", reply_markup=kb_service())
-        except TelegramBadRequest:
-            pass
+    active = await get_setting("active_suppliers", ["vnhotp", "tigersms", "grizzly"])
+    await _edit(call.message, "🛍 <b>Catalog</b>\n\nChoose a service:", reply_markup=kb_service(active), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("svc:"))
@@ -123,14 +118,15 @@ async def cb_buy(call: CallbackQuery):
     countries = CACHE.get(call.from_user.id, {}).get(service, [])
     info = next((c for c in countries if c["code"].upper() == code.upper()), None)
 
+    margin = float(await get_setting("global_margin", 0.0))
     if not info or info.get("price") is None:
         try:
             if service == "tg":
                 d = await vnhotp.tg_country_info(code)
-                price = d.get("price")
+                price = float(d.get("price", 0)) * (1 + margin / 100)
             else:
                 d = await vnhotp.wp_get_price(service, code)
-                price = d.get("price")
+                price = float(d.get("price", 0)) * (1 + margin / 100)
             name = info["name"] if info else code
         except VNHOTPError as e:
             await _edit(call.message, f"❌ {e}", reply_markup=kb_back("catalog"))
@@ -146,7 +142,7 @@ async def cb_buy(call: CallbackQuery):
     if service != "tg":
         try:
             gp = await vnhotp.wp_get_price(service, code)
-            inr = float(gp.get("price_inr") or inr)
+            inr = float(gp.get("price_inr", 0)) * (1 + margin / 100)
             stock = gp.get("stock")
         except VNHOTPError:
             pass

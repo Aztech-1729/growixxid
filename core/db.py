@@ -127,3 +127,67 @@ async def set_currency_pref(user_id: int, currency: str) -> None:
 async def get_currency_pref(user_id: int) -> str:
     u = await users.find_one({"user_id": user_id})
     return u.get("currency_pref", "INR") if u else "INR"
+
+
+# ---- settings ----
+async def get_setting(key: str, default=None):
+    doc = await settings.find_one({"key": key})
+    if doc:
+        return doc.get("value")
+    return default
+
+async def set_setting(key: str, value) -> None:
+    await settings.update_one(
+        {"key": key},
+        {"$set": {"value": value}},
+        upsert=True
+    )
+
+
+# ---- user management ----
+async def toggle_ban_user(user_id: int) -> bool:
+    u = await users.find_one({"user_id": user_id})
+    if not u:
+        return False
+    new_status = not u.get("banned", False)
+    await users.update_one({"user_id": user_id}, {"$set": {"banned": new_status}})
+    return new_status
+
+
+# ---- analytics ----
+async def get_sales_report() -> dict:
+    now = datetime.datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - datetime.timedelta(days=today_start.weekday())
+    month_start = today_start.replace(day=1)
+    
+    pipeline = [
+        {"$match": {"status": "completed"}},
+        {"$group": {
+            "_id": None,
+            "today": {"$sum": {"$cond": [{"$gte": ["$created_at", today_start]}, "$price_inr", 0]}},
+            "week": {"$sum": {"$cond": [{"$gte": ["$created_at", week_start]}, "$price_inr", 0]}},
+            "month": {"$sum": {"$cond": [{"$gte": ["$created_at", month_start]}, "$price_inr", 0]}},
+        }}
+    ]
+    cursor = orders.aggregate(pipeline)
+    result = await cursor.to_list(length=1)
+    
+    # most popular services
+    pop_pipeline = [
+        {"$match": {"status": "completed"}},
+        {"$group": {"_id": "$service", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 3}
+    ]
+    pop_cursor = orders.aggregate(pop_pipeline)
+    pop_result = await pop_cursor.to_list(length=3)
+    
+    return {
+        "revenue": result[0] if result else {"today": 0, "week": 0, "month": 0},
+        "popular": pop_result
+    }
+
+async def get_recent_failed_orders(limit: int = 5):
+    cur = orders.find({"status": {"$in": ["refunded", "failed"]}}).sort("created_at", -1).limit(limit)
+    return await cur.to_list(length=limit)

@@ -10,7 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from core.config import config
 from core.db import (add_order, get_order, get_wallet, deduct_wallet,
-                credit_wallet, update_order, get_currency_pref)
+                credit_wallet, update_order, get_currency_pref, get_setting)
 from ui.keyboards import kb_back
 from utils.rates import usd_to_inr
 from services.grizzly_api import grizzly, GrizzlySMSError
@@ -128,6 +128,7 @@ async def cb_grzsvc(call: CallbackQuery):
     items = OFFERINGS_CACHE.get(service_code)
     if items is None:
         try:
+            margin = float(await get_setting("global_margin", 0.0))
             prices = await grizzly.prices(service_code)
             countries = await grizzly.countries()
             
@@ -146,7 +147,7 @@ async def cb_grzsvc(call: CallbackQuery):
                 items.append({
                     "id": str(cid),
                     "label": label,
-                    "price_usd": float(d["cost"]),
+                    "price_usd": float(d["cost"]) * (1 + margin / 100),
                     "stock": count
                 })
             items.sort(key=lambda o: o["label"].lower())
@@ -294,8 +295,9 @@ async def cb_grzconfirm(call: CallbackQuery):
 
     try:
         aid, number = await grizzly.get_number(service_code, country_id)
+        margin = float(await get_setting("global_margin", 0.0))
         prices = await grizzly.prices(service_code, country_id)
-        cost_usd = float(prices[country_id][service_code]["cost"])
+        cost_usd = float(prices[country_id][service_code]["cost"]) * (1 + margin / 100)
         # ensure we charge exactly what it actually cost, but cap at `inr` (expected)
         actual_inr = cost_usd * rate
     except Exception as e:
