@@ -231,7 +231,7 @@ async def cb_myorders(call: CallbackQuery):
     total = await count_user_orders(call.from_user.id)
     
     if not orders and page == 0:
-        await _edit(call.message, "📭 You have no orders yet.", reply_markup=kb_back("menu"))
+        await _edit(call.message, "<tg-emoji emoji-id='5253742260054409879'>📭</tg-emoji> You have no orders yet.", reply_markup=kb_back("menu"))
         return
         
     text = "📜 <b>Your recent orders</b>\n\n"

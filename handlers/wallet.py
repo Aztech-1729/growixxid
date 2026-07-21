@@ -30,7 +30,7 @@ async def _wallet_text(user_id: int) -> tuple:
         display = balance
         symbol, code = "₹", "INR"
     text = (
-        f"💰 <b>Your Wallet</b>\n\n"
+        f"<tg-emoji emoji-id='5990147899403539264'>💰</tg-emoji> <b>Your Wallet</b>\n\n"
         f"<b>Balance:</b> {symbol}{display:.2f} {code}\n"
         f"<b>Rate:</b> $1 = ₹{rate:.2f}\n\n"
         f"Tap <b>Add Funds</b> to deposit money."

@@ -6,7 +6,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 from core.config import config
 from core.db import register_user
-from ui.keyboards import kb_back, kb_main
+from ui.keyboards import kb_back, kb_main, kb_support
 
 router = Router()
 
@@ -117,15 +117,32 @@ async def cb_menu(call: CallbackQuery):
 async def cb_help(call: CallbackQuery):
     await call.answer()
     text = (
-        "📖 <b>How to use</b>\n\n"
-        "<b>1.</b> Browse Numbers → pick a service\n"
-        "<b>2.</b> Choose a country\n"
-        "<b>3.</b> Confirm & buy\n"
-        "<b>4.</b> OTP is delivered automatically\n\n"
-        "ℹ️ <b>Telegram orders cannot be cancelled.</b>\n"
-        "ℹ️ <b>WhatsApp orders can be refunded via the Cancel button.</b>"
+        "<tg-emoji emoji-id='5222444124698853913'>🔖</tg-emoji> 𝐇𝐎𝐖 𝐓𝐎 𝐔𝐒𝐄\n\n"
+        "1. Browse Numbers → pick a service\n"
+        "2. Choose a country\n"
+        "3. Confirm & buy\n"
+        "4. OTP is delivered automatically\n\n"
+        "<tg-emoji emoji-id='5440660757194744323'>‼️</tg-emoji> Telegram orders cannot be cancelled. \n\n"
+        "<tg-emoji emoji-id='5440660757194744323'>‼️</tg-emoji> WhatsApp orders can be refunded via the Cancel button."
     )
     await _edit(call.message, text, reply_markup=kb_back("menu"), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "support")
+async def cb_support(call: CallbackQuery):
+    await call.answer()
+    text = (
+        "CUSTOMER SUPPORT <tg-emoji emoji-id='5870692618244984670'>📞</tg-emoji>\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+        "NEED HELP WITH YOUR DIGITAL PRODUCTS OR PAYMENT ? OUR ELITE SUPPORT TEAM IS READY TO ASSIST YOU 24/7 <tg-emoji emoji-id='5208573502046610594'>🕛</tg-emoji>\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+        "Admin Contact:\n"
+        "@ur_Growixx222 <tg-emoji emoji-id='5352825278672412291'>✅</tg-emoji>\n\n"
+        "PLEASE KEEP YOUR ORDER ID READY FOR FASTER RESOLUTION. <tg-emoji emoji-id='5188481279963715781'>🚀</tg-emoji><tg-emoji emoji-id='5188481279963715781'>🚀</tg-emoji>\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+        "CLICK THE BUTTON BELOW TO START THE CHAT <tg-emoji emoji-id='5406745015365943482'>⬇️</tg-emoji><tg-emoji emoji-id='5406745015365943482'>⬇️</tg-emoji><tg-emoji emoji-id='5406745015365943482'>⬇️</tg-emoji>"
+    )
+    await _edit(call.message, text, reply_markup=kb_support(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "join_check")
