@@ -22,7 +22,10 @@ async def create_invoice(user_id: int, amount_usd: float, description: str = "Wa
     if not config.NOWPAYMENTS_API_KEY:
         raise RuntimeError("NOWPAYMENTS_API_KEY not configured.")
         
-    url = "https://api.nowpayments.io/v1/invoice"
+    if config.NOWPAYMENTS_SANDBOX:
+        url = "https://api-sandbox.nowpayments.io/v1/invoice"
+    else:
+        url = "https://api.nowpayments.io/v1/invoice"
     
     headers = {
         "x-api-key": config.NOWPAYMENTS_API_KEY,

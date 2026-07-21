@@ -43,6 +43,7 @@ class Config:
     # NOWPayments (Crypto)
     NOWPAYMENTS_API_KEY = os.getenv("NOWPAYMENTS_API_KEY", "")
     NOWPAYMENTS_IPN_SECRET = os.getenv("NOWPAYMENTS_IPN_SECRET", "")
+    NOWPAYMENTS_SANDBOX = os.getenv("NOWPAYMENTS_SANDBOX", "False").lower() == "true"
 
     @property
     def channel_link(self) -> str:
