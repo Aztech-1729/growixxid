@@ -1,5 +1,3 @@
-import html
-
 from aiogram import Router, F
 from aiogram.enums import ChatMemberStatus
 from aiogram.filters import Command
@@ -72,13 +70,20 @@ async def _send_main_menu(call_or_msg, user_id: int, first_name: str):
 
 def _get_main_menu_text(first_name: str) -> str:
     return (
-        f"<tg-emoji emoji-id='5780560530515171033'>💎</tg-emoji> <b>𝙂𝙍𝙊𝙒𝙄𝙓𝙓 𝚸𝚪𝚵𝚳𝚰𝐔𝚳</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"Welcome, <b>{html.escape(first_name)}</b>!\n"
-        f"Your premier gateway for instant virtual numbers.\n\n"
-        f"<tg-emoji emoji-id='5330237710655306682'>📱</tg-emoji> <b>Top Services:</b> Telegram, WhatsApp, & 3000+ more!\n"
-        f"<tg-emoji emoji-id='6028517788606272241'>💰</tg-emoji> <b>Automated:</b> Get your OTPs instantly 24/7.\n\n"
-        f"<i>Tap <b>Services</b> below to begin.</i>"
+        "HI 🫲<tg-emoji emoji-id='5456258317477230911'>😎</tg-emoji>🫱 —_ 𝙂𝙍𝙊𝙒𝙄𝙓𝙓 !!\n"
+        "WELCOME TO <tg-emoji emoji-id='5895242866057286055'>🔘</tg-emoji>\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+        "𝐆𝐑𝐎𝐖𝐈𝐗𝐗 𝐎𝐓𝐓 𝐁𝐎𝐓 <tg-emoji emoji-id='5314391089514291948'>🤖</tg-emoji>\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+        "<tg-emoji emoji-id='5222444124698853913'>🔖</tg-emoji> QUICK GUIDE :\n"
+        "<tg-emoji emoji-id='5346105514575025401'>▶️</tg-emoji> 𝚃𝙰𝙿 '𝚜𝚎𝚛𝚟𝚒𝚌𝚎𝚜' 𝙱𝚄𝚃𝚃𝙾𝙽.\n"
+        "<tg-emoji emoji-id='5346105514575025401'>▶️</tg-emoji> 𝚃𝙰𝙿 '𝚙𝚕𝚊𝚝𝚏𝚘𝚛𝚖' 𝚃𝙾 𝙱𝚁𝙾𝚆𝚂𝙴 𝙿𝚁𝙾𝙳𝚄𝙲𝚃𝚂.\n"
+        "<tg-emoji emoji-id='5346105514575025401'>▶️</tg-emoji> 𝙲𝙷𝙾𝙾𝚂𝙴 𝚃𝙷𝙴 '𝚌𝚘𝚞𝚗𝚝𝚛𝚢' 𝚈𝙾𝚄 𝚆𝙰𝙽𝚃.\n"
+        "<tg-emoji emoji-id='5346105514575025401'>▶️</tg-emoji> 𝙲𝙾𝙼𝙿𝙻𝙴𝚃𝙴 𝚃𝙷𝙴 '𝚙𝚊𝚢𝚖𝚎𝚗𝚝'\n"
+        "<tg-emoji emoji-id='5346105514575025401'>▶️</tg-emoji> 𝚈𝙾𝚄𝚁 '𝚜𝚎𝚛𝚟𝚒𝚌𝚎𝚜' 𝚆𝙸𝙻𝙻 𝙱𝙴 𝙳𝙴𝙻𝙸𝚅𝙴𝚁𝙴𝙳 𝙸𝙽𝚂𝚃𝙰𝙽𝚃𝙻𝚈.\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+        "PLEASE CHOOSE A MENU BELOW\n"
+        "<tg-emoji emoji-id='5406745015365943482'>⬇️</tg-emoji><tg-emoji emoji-id='5406745015365943482'>⬇️</tg-emoji><tg-emoji emoji-id='5406745015365943482'>⬇️</tg-emoji>"
     )
 
 async def send_start_to_user_id(bot, user_id: int, first_name: str):
