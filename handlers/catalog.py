@@ -8,7 +8,6 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from core.config import config
 from core.db import (add_order, get_user_orders, update_order, get_wallet, deduct_wallet, 
                 get_currency_pref, count_user_orders, get_setting)
 from ui.keyboards import kb_back, kb_confirm, kb_countries, kb_order_wp, kb_service, kb_myorders
@@ -167,13 +166,15 @@ async def cb_confirm(call: CallbackQuery):
     _, service, code = call.data.split(":")
 
     try:
+        margin = float(await get_setting("global_margin", 0.0))
+        rate = await usd_to_inr()
         if service == "tg":
             ci = await vnhotp.tg_country_info(code)
-            inr = float(ci.get("price", 0)) * config.USD_INR_RATE
+            inr = float(ci.get("price", 0)) * (1 + margin / 100) * rate
             name = code
         else:
             gp = await vnhotp.wp_get_price(service, code)
-            inr = float(gp.get("price_inr") or (gp.get("price", 0) * config.USD_INR_RATE))
+            inr = float(gp.get("price_inr") or (gp.get("price", 0) * rate)) * (1 + margin / 100)
             name = code
     except VNHOTPError as e:
         await _edit(call.message, f"❌ {e}", reply_markup=kb_back("catalog"))
