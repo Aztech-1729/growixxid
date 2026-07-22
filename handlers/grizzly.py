@@ -301,9 +301,19 @@ async def cb_grzconfirm(call: CallbackQuery):
         # ensure we charge exactly what it actually cost, but cap at `inr` (expected)
         actual_inr = cost_usd * rate
     except Exception as e:
-        await _edit(call.message,
-                    f"❌ Order failed: {html.escape(str(e))}",
-                    reply_markup=kb_back("grizzly:menu:0"))
+        err_str = str(e)
+        if "NO_NUMBERS" in err_str:
+            # Remove the empty country from cache dynamically so nobody else sees it
+            if service_code in OFFERINGS_CACHE:
+                OFFERINGS_CACHE[service_code] = [x for x in OFFERINGS_CACHE[service_code] if x["id"] != country_id]
+            
+            await _edit(call.message,
+                        f"❌ <b>Out of Stock!</b>\n\nGrizzly SMS just ran out of numbers for {o['label']}.\nI have temporarily removed it from the catalog. Please choose a different country.",
+                        reply_markup=kb_back(f"grzsvc:{service_code}:0"), parse_mode="HTML")
+        else:
+            await _edit(call.message,
+                        f"❌ Order failed: {html.escape(err_str)}",
+                        reply_markup=kb_back("grizzly:menu:0"))
         return
 
     ref = aid
