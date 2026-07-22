@@ -128,11 +128,7 @@ async def cmd_add(msg: Message):
         await msg.answer("❌ Amount must be greater than 0.")
         return
         
-    u = await get_user(uid)
-    if not u:
-        await msg.answer(f"❌ User <code>{uid}</code> not found.", parse_mode="HTML")
-        return
-        
+    # We do not check if user exists first because credit_wallet handles upsert.
     await credit_wallet(uid, amt, f"Admin /add command by {msg.from_user.id}")
     u = await get_user(uid)
     await msg.answer(f"✅ Added ₹{amt:.2f} to {uid}.\nNew balance: ₹{u.get('wallet', 0.0):.2f}")
@@ -162,7 +158,11 @@ async def cmd_remove(msg: Message):
         await msg.answer(f"❌ User <code>{uid}</code> not found.", parse_mode="HTML")
         return
         
-    await deduct_wallet(uid, amt, f"Admin /remove command by {msg.from_user.id}")
+    success = await deduct_wallet(uid, amt, f"Admin /remove command by {msg.from_user.id}")
+    if not success:
+        await msg.answer(f"❌ Failed to deduct. User <code>{uid}</code> does not have enough balance.", parse_mode="HTML")
+        return
+        
     u = await get_user(uid)
     await msg.answer(f"✅ Removed ₹{amt:.2f} from {uid}.\nNew balance: ₹{u.get('wallet', 0.0):.2f}")
 
