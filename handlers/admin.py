@@ -109,6 +109,65 @@ async def cmd_bd(msg: Message):
     await status_msg.edit_text(f"✅ Broadcast successfully sent to {sent} users.")
 
 
+@router.message(Command("add"))
+async def cmd_add(msg: Message):
+    if msg.from_user.id not in config.ADMIN_IDS:
+        return
+    parts = msg.text.split()
+    if len(parts) != 3:
+        await msg.answer("❌ Usage: /add <userid> <amount>")
+        return
+    try:
+        uid = int(parts[1])
+        amt = float(parts[2])
+    except ValueError:
+        await msg.answer("❌ Invalid User ID or amount.")
+        return
+    
+    if amt <= 0:
+        await msg.answer("❌ Amount must be greater than 0.")
+        return
+        
+    u = await get_user(uid)
+    if not u:
+        await msg.answer(f"❌ User <code>{uid}</code> not found.", parse_mode="HTML")
+        return
+        
+    await credit_wallet(uid, amt, f"Admin /add command by {msg.from_user.id}")
+    u = await get_user(uid)
+    await msg.answer(f"✅ Added ₹{amt:.2f} to {uid}.\nNew balance: ₹{u.get('wallet', 0.0):.2f}")
+
+
+@router.message(Command("remove"))
+async def cmd_remove(msg: Message):
+    if msg.from_user.id not in config.ADMIN_IDS:
+        return
+    parts = msg.text.split()
+    if len(parts) != 3:
+        await msg.answer("❌ Usage: /remove <userid> <amount>")
+        return
+    try:
+        uid = int(parts[1])
+        amt = float(parts[2])
+    except ValueError:
+        await msg.answer("❌ Invalid User ID or amount.")
+        return
+        
+    if amt <= 0:
+        await msg.answer("❌ Amount must be greater than 0.")
+        return
+        
+    u = await get_user(uid)
+    if not u:
+        await msg.answer(f"❌ User <code>{uid}</code> not found.", parse_mode="HTML")
+        return
+        
+    await deduct_wallet(uid, amt, f"Admin /remove command by {msg.from_user.id}")
+    u = await get_user(uid)
+    await msg.answer(f"✅ Removed ₹{amt:.2f} from {uid}.\nNew balance: ₹{u.get('wallet', 0.0):.2f}")
+
+
+
 # ===================================================================
 # ADMIN PANEL: USER MANAGEMENT
 # ===================================================================
