@@ -41,16 +41,23 @@ class AutoSessionManager:
             await self.client.disconnect()
             raise SessionMakerError(f"Failed to request code from Telegram: {e}")
 
-    async def sign_in_and_get_file(self, otp: str) -> str:
-        """Submit OTP and return the path to the completed .session file."""
+    async def sign_in_and_get_file(self, otp: str, password: str = None) -> str:
+        """Submit OTP (and optionally 2FA password) and return the path to the completed .session file."""
         if not self.phone_code_hash:
             raise SessionMakerError("Must call connect_and_send_code first.")
             
         try:
             await self.client.sign_in(self.phone_number, self.phone_code_hash, otp)
         except SessionPasswordNeeded:
-            await self.client.disconnect()
-            raise SessionMakerError("2FA Password is required for this number.")
+            if password:
+                try:
+                    await self.client.check_password(password)
+                except Exception as e:
+                    await self.client.disconnect()
+                    raise SessionMakerError(f"2FA Password failed: {e}")
+            else:
+                await self.client.disconnect()
+                raise SessionMakerError("2FA Password is required for this number, but none was provided by the supplier.")
         except (PhoneCodeInvalid, PhoneCodeExpired) as e:
             await self.client.disconnect()
             raise SessionMakerError(f"OTP is invalid or expired: {e}")

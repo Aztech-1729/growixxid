@@ -347,12 +347,19 @@ async def cb_grzconfirm(call: CallbackQuery):
     is_tg = service_code == "tg"
     kb = None if is_tg else _kb_cancel(ref, locked=True, lock_time=120)
     
-    text = (
-        f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n"
-        f"<b>Service:</b> {service_name}\n<b>Number:</b> <code>{number}</code>\n"
-        f"<b>Charged:</b> {display_price}\n\n"
-        f"ℹ️ <i>You can wait for the OTP or cancel manually at any time. If no OTP is received before the provider's time limit, the order will be automatically cancelled and your wallet will be fully refunded!</i>"
-    )
+    if is_tg:
+        text = (
+            f"⏳ <b>Number acquired! Generating Telegram Session...</b>\n\n"
+            f"<b>Service:</b> {service_name}\n<b>Number:</b> <code>{number}</code>\n"
+            f"<b>Charged:</b> {display_price}"
+        )
+    else:
+        text = (
+            f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n"
+            f"<b>Service:</b> {service_name}\n<b>Number:</b> <code>{number}</code>\n"
+            f"<b>Charged:</b> {display_price}\n\n"
+            f"ℹ️ <i>You can wait for the OTP or cancel manually at any time. If no OTP is received before the provider's time limit, the order will be automatically cancelled and your wallet will be fully refunded!</i>"
+        )
     
     new_msg = await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
 

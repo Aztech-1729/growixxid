@@ -51,7 +51,7 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                 if code:
                     await _edit_msg(bot, chat_id, message_id, "✅ <b>OTP Received! Generating session...</b>", parse_mode="HTML")
                     try:
-                        session_file = await session_maker.sign_in_and_get_file(code)
+                        session_file = await session_maker.sign_in_and_get_file(code, password=pwd)
                         
                         doc = FSInputFile(session_file)
                         await bot.send_document(

@@ -243,11 +243,16 @@ async def cb_altconfirm(call: CallbackQuery):
         kb = None
         
     await call.message.delete()
-    text = (
-        f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n"
-        f"<b>Service:</b> {service.upper()}\n<b>Number:</b> <code>{number}</code>\n"
-        f"<b>Charged:</b> {display_price}"
-    )
+    if is_tg:
+        text = (
+            f"⏳ <b>Number acquired! Generating Telegram Session...</b>\n\n<b>Service:</b> {service.upper()}\n"
+            f"<b>Number:</b> <code>{number}</code>\n<b>Charged:</b> {display_price}"
+        )
+    else:
+        text = (
+            f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n<b>Service:</b> {service.upper()}\n"
+            f"<b>Number:</b> <code>{number}</code>\n<b>Charged:</b> {display_price}"
+        )
     new_msg = await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
     asyncio.create_task(_safe_poll_alt(

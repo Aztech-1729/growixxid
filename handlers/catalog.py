@@ -225,10 +225,16 @@ async def cb_confirm(call: CallbackQuery):
     kb = kb_order_wp(service, ref) if service != "tg" else None
     
     await call.message.delete()
-    text = (
-        f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n<b>Service:</b> {service.upper()}\n"
-        f"<b>Number:</b> <code>{number}</code>\n<b>Charged:</b> {display_price}"
-    )
+    if service == "tg":
+        text = (
+            f"⏳ <b>Number acquired! Generating Telegram Session...</b>\n\n<b>Service:</b> {service.upper()}\n"
+            f"<b>Number:</b> <code>{number}</code>\n<b>Charged:</b> {display_price}"
+        )
+    else:
+        text = (
+            f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n<b>Service:</b> {service.upper()}\n"
+            f"<b>Number:</b> <code>{number}</code>\n<b>Charged:</b> {display_price}"
+        )
     new_msg = await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
     asyncio.create_task(
