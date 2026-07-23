@@ -285,7 +285,7 @@ async def cb_cancel(call: CallbackQuery):
                     f"✅ Order cancelled & refunded.\n{res.get('message', '')}",
                     reply_markup=kb_back("menu"))
     except VNHOTPError as e:
-        await _edit(call.message, f"❌ {e}", reply_markup=kb_back("menu"))
+        await call.answer(f"❌ Could not cancel: {e}", show_alert=True)
 
 
 async def _safe_poll(bot, user_id, chat_id, message_id, service, ref, number):

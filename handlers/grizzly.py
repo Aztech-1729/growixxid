@@ -377,21 +377,19 @@ async def cb_grzcancel(call: CallbackQuery):
         res = await grizzly.set_status(ref, 8)
         ok = res.startswith("ACCESS")
     except Exception as e:
-        await _edit(call.message, f"❌ {e}", reply_markup=kb_back("menu"))
+        await call.answer(f"❌ Cancel failed: {html.escape(str(e))}", show_alert=True)
         return
-        
+
     if ok:
         o = await get_order(ref)
         if o and float(o.get("price_inr", 0)):
-            await credit_wallet(o["user_id"], float(o["price_inr"]), "grizzly refund")
+            await credit_wallet(o["user_id"], float(o["price_inr"]), f"Refund for cancelled grizzly order {ref}")
             await update_order(ref, status="cancelled", refunded=True)
+            await _edit(call.message, "✅ Order cancelled & refunded.", reply_markup=kb_back("menu"))
         else:
-            await update_order(ref, status="cancelled")
-        await _edit(call.message, "✅ Order cancelled & refunded.",
-                    reply_markup=kb_back("menu"))
+            await _edit(call.message, "✅ Order cancelled.", reply_markup=kb_back("menu"))
     else:
-        await _edit(call.message, "❌ Could not cancel this order.",
-                    reply_markup=kb_back("menu"))
+        await call.answer("❌ Order could not be cancelled. It may have already expired or completed.", show_alert=True)
 
 
 # ---- OTP poller ----

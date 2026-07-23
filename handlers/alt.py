@@ -268,20 +268,19 @@ async def cb_altcancel(call: CallbackQuery):
     try:
         ok = await cancel(sid, ref)
     except Exception as e:
-        await _edit(call.message, f"❌ {e}", reply_markup=kb_back("menu"))
+        await call.answer(f"❌ Cancel failed: {html.escape(str(e))}", show_alert=True)
         return
+
     if ok:
         o = await get_order(ref)
         if o and float(o.get("price_inr", 0)):
-            await credit_wallet(o["user_id"], float(o["price_inr"]), "alt refund")
+            await credit_wallet(o["user_id"], float(o["price_inr"]), f"Refund for cancelled order {ref}")
             await update_order(ref, status="cancelled", refunded=True)
+            await _edit(call.message, "✅ Order cancelled & refunded.", reply_markup=kb_back("menu"))
         else:
-            await update_order(ref, status="cancelled")
-        await _edit(call.message, "✅ Order cancelled & refunded.",
-                    reply_markup=kb_back("menu"))
+            await _edit(call.message, "✅ Order cancelled (No charge was made).", reply_markup=kb_back("menu"))
     else:
-        await _edit(call.message, "❌ Could not cancel this order.",
-                    reply_markup=kb_back("menu"))
+        await call.answer("❌ Order could not be cancelled. Please wait for it to expire automatically.", show_alert=True)
 
 
 # ---- OTP poller ----
