@@ -508,4 +508,4 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
     await _edit_msg(
         bot, chat_id, message_id,
         "⌛ <b>OTP not received!</b>\n\nThe provider's wait time has expired. The order has been automatically cancelled and your wallet has been fully refunded.",
-        reply_markup=None)
+        reply_markup=None, parse_mode="HTML")
