@@ -324,11 +324,13 @@ async def cb_grzconfirm(call: CallbackQuery):
         price=cost_usd, price_inr=actual_inr, order_ref=ref,
         supplier="grizzly", status="pending")
 
+    timeout_mins = max(1, config.OTP_TIMEOUT // 60)
     kb = _kb_cancel(ref)
     await _edit(call.message,
                 f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n"
                 f"<b>Service:</b> {service_name}\n<b>Number:</b> <code>{number}</code>\n"
-                f"<b>Charged:</b> {display_price}",
+                f"<b>Charged:</b> {display_price}\n\n"
+                f"ℹ️ <i>You have {timeout_mins} minutes to receive the OTP. You can cancel manually at any time. If no OTP is received, the order will be automatically cancelled and your wallet will be fully refunded!</i>",
                 reply_markup=kb, parse_mode="HTML")
 
     asyncio.create_task(_safe_poll_grz(
@@ -407,5 +409,5 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
         
     await _edit_msg(
         bot, chat_id, message_id,
-        "⌛ OTP not received within the time limit. Order expired.",
+        "⌛ <b>OTP not received!</b>\n\nThe wait time has expired. The order has been automatically cancelled and your wallet has been fully refunded.",
         reply_markup=kb_back("menu"))
