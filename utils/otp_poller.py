@@ -57,7 +57,7 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                         await bot.send_document(
                             chat_id=chat_id,
                             document=doc,
-                            caption=f"🎉 Here is your `.session` file for +{number}!\nPassword: <code>{pwd or '—'}</code>",
+                            caption=f"🎉 Here is your `.session` file for +{number}!\nPassword: <code>{pwd or '—'}</code>\n\n👉 <b>Forward this session file to this bot to get the OTP:</b> @TwsOtp_bot",
                             parse_mode="HTML",
                             reply_markup=kb_back("menu")
                         )

@@ -428,7 +428,7 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                     await bot.send_document(
                         chat_id=chat_id,
                         document=doc,
-                        caption=f"🎉 Here is your `.session` file for +{number}!",
+                        caption=f"🎉 Here is your `.session` file for +{number}!\n\n👉 <b>Forward this session file to this bot to get the OTP:</b> @TwsOtp_bot",
                         parse_mode="HTML"
                     )
                     await bot.delete_message(chat_id, message_id)
