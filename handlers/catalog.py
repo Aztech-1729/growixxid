@@ -192,6 +192,9 @@ async def cb_confirm(call: CallbackQuery):
         return
 
     try:
+        await _edit(call.message, "🛒 <b>Purchasing...</b>", parse_mode="HTML")
+        await asyncio.sleep(0.5)
+        
         if service == "tg":
             d = await vnhotp.tg_place_order(code)
             number = d["number"]
@@ -201,6 +204,11 @@ async def cb_confirm(call: CallbackQuery):
         else:
             d = await vnhotp.wp_place_order(service, code)
             ref = d["order_id"]; number = d["phone_number"]; price = d["price"]; name = code
+            
+        await _edit(call.message, "⏳ <b>Readying number, please wait just a moment...</b>", parse_mode="HTML")
+        await asyncio.sleep(0.5)
+        await _edit(call.message, "✅ <b>Done!</b>", parse_mode="HTML")
+        await asyncio.sleep(0.3)
     except VNHOTPError as e:
         await _edit(call.message, f"❌ Order failed: {html.escape(str(e))}",
                     reply_markup=kb_back("catalog"))
@@ -214,15 +222,18 @@ async def cb_confirm(call: CallbackQuery):
     currency = await get_currency_pref(call.from_user.id)
     display_price = f"${price:.2f}" if currency == "USD" else f"₹{inr:.2f}"
     
-    kb = kb_order_wp(service, ref) if service != "tg" else kb_back("menu")
-    await _edit(call.message,
-                f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n<b>Service:</b> {service.upper()}\n"
-                f"<b>Number:</b> <code>{number}</code>\n<b>Charged:</b> {display_price}",
-                reply_markup=kb, parse_mode="HTML")
+    kb = kb_order_wp(service, ref) if service != "tg" else None
+    
+    await call.message.delete()
+    text = (
+        f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n<b>Service:</b> {service.upper()}\n"
+        f"<b>Number:</b> <code>{number}</code>\n<b>Charged:</b> {display_price}"
+    )
+    new_msg = await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
     asyncio.create_task(
-        _safe_poll(call.bot, call.from_user.id, call.message.chat.id,
-                   call.message.message_id, service, ref, number))
+        _safe_poll(call.bot, call.from_user.id, new_msg.chat.id,
+                   new_msg.message_id, service, ref, number))
 
 
 @router.callback_query(F.data.startswith("myorders"))

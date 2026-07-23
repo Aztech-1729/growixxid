@@ -18,6 +18,8 @@ from core.db import (add_order, get_order, get_wallet, deduct_wallet,
 from ui.keyboards import kb_back
 from utils.rates import usd_to_inr
 from services.suppliers import SUPPLIERS, get_offerings, buy, get_code, cancel
+from utils.session_maker import AutoSessionManager, SessionMakerError
+from aiogram.types import FSInputFile
 
 router = Router()
 
@@ -211,7 +213,13 @@ async def cb_altconfirm(call: CallbackQuery):
         return
 
     try:
+        await _edit(call.message, "🛒 <b>Purchasing...</b>", parse_mode="HTML")
+        await asyncio.sleep(0.5)
         res = await buy(sid, service, item_id)
+        await _edit(call.message, "⏳ <b>Readying number, please wait just a moment...</b>", parse_mode="HTML")
+        await asyncio.sleep(0.5)
+        await _edit(call.message, "✅ <b>Done!</b>", parse_mode="HTML")
+        await asyncio.sleep(0.3)
     except Exception as e:
         await _edit(call.message,
                     f"❌ Order failed: {html.escape(str(e))}",
@@ -230,15 +238,21 @@ async def cb_altconfirm(call: CallbackQuery):
 
     svc = next(s for s in SUPPLIERS[sid]["services"] if s["key"] == service)
     kb = _kb_cancel(sid, ref) if svc["cancellable"] else kb_back("menu")
-    await _edit(call.message,
-                f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n"
-                f"<b>Service:</b> {service.upper()}\n<b>Number:</b> <code>{number}</code>\n"
-                f"<b>Charged:</b> {display_price}",
-                reply_markup=kb, parse_mode="HTML")
+    is_tg = service == "tg"
+    if is_tg:
+        kb = None
+        
+    await call.message.delete()
+    text = (
+        f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n"
+        f"<b>Service:</b> {service.upper()}\n<b>Number:</b> <code>{number}</code>\n"
+        f"<b>Charged:</b> {display_price}"
+    )
+    new_msg = await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
     asyncio.create_task(_safe_poll_alt(
-        call.bot, call.from_user.id, call.message.chat.id,
-        call.message.message_id, sid, service, ref, number))
+        call.bot, call.from_user.id, new_msg.chat.id,
+        new_msg.message_id, sid, service, ref, number))
 
 
 # ---- cancel + refund ----
@@ -277,22 +291,55 @@ async def _safe_poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, n
 async def poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number):
     interval = config.OTP_POLL_INTERVAL
     tries = max(1, int(config.OTP_TIMEOUT / interval))
+    
+    session_maker = None
+    if service == "tg":
+        session_maker = AutoSessionManager(number)
+        try:
+            await session_maker.connect_and_send_code()
+        except SessionMakerError as e:
+            await _edit_msg(bot, chat_id, message_id, f"❌ Failed to request code from Telegram:\n{e}", reply_markup=None)
+            return
+            
     for _ in range(tries):
         try:
             code = await get_code(sid, ref, service)
         except Exception:
             code = None
         if code:
-            await update_order(ref, status="completed", otp=code)
-            await _edit_msg(
-                bot, chat_id, message_id,
-                f"✅ <b>OTP Received!</b>\n\n"
-                f"<b>Service:</b> {service.upper()}\n"
-                f"<b>Number:</b> <code>{number}</code>\n<b>OTP:</b> <b>{code}</b>",
-                parse_mode="HTML", reply_markup=kb_back("menu"))
-            return
+            if service == "tg":
+                await _edit_msg(bot, chat_id, message_id, "✅ <b>OTP Received! Generating session...</b>", parse_mode="HTML")
+                try:
+                    session_file = await session_maker.sign_in_and_get_file(code)
+                    doc = FSInputFile(session_file)
+                    await bot.send_document(
+                        chat_id=chat_id,
+                        document=doc,
+                        caption=f"🎉 Here is your `.session` file for +{number}!",
+                        parse_mode="HTML"
+                    )
+                    await bot.delete_message(chat_id, message_id)
+                    await update_order(ref, status="completed", otp=code)
+                except SessionMakerError as e:
+                    await _edit_msg(bot, chat_id, message_id, f"❌ Failed to create session:\n{e}")
+                    await update_order(ref, status="completed", otp=code)
+                if session_maker:
+                    session_maker.cleanup()
+                return
+            else:
+                await update_order(ref, status="completed", otp=code)
+                await _edit_msg(
+                    bot, chat_id, message_id,
+                    f"✅ <b>OTP Received!</b>\n\n"
+                    f"<b>Service:</b> {service.upper()}\n"
+                    f"<b>Number:</b> <code>{number}</code>\n<b>OTP:</b> <b>{code}</b>",
+                    parse_mode="HTML")
+                return
         await asyncio.sleep(interval)
+        
     await update_order(ref, status="expired")
+    if session_maker:
+        session_maker.cleanup()
     try:
         ok = await cancel(sid, ref)
         if ok:
@@ -306,7 +353,7 @@ async def poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number)
     await _edit_msg(
         bot, chat_id, message_id,
         "⌛ OTP not received within the time limit. Order expired.",
-        reply_markup=kb_back("menu"))
+        reply_markup=None)
 
 
 async def _resolve_offering(user_id, sid, service, item_id):
