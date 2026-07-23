@@ -324,13 +324,12 @@ async def cb_grzconfirm(call: CallbackQuery):
         price=cost_usd, price_inr=actual_inr, order_ref=ref,
         supplier="grizzly", status="pending")
 
-    timeout_mins = max(1, config.OTP_TIMEOUT // 60)
     kb = _kb_cancel(ref)
     await _edit(call.message,
                 f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n"
                 f"<b>Service:</b> {service_name}\n<b>Number:</b> <code>{number}</code>\n"
                 f"<b>Charged:</b> {display_price}\n\n"
-                f"ℹ️ <i>You have {timeout_mins} minutes to receive the OTP. You can cancel manually at any time. If no OTP is received, the order will be automatically cancelled and your wallet will be fully refunded!</i>",
+                f"ℹ️ <i>You can wait for the OTP or cancel manually at any time. If no OTP is received before the provider's time limit, the order will be automatically cancelled and your wallet will be fully refunded!</i>",
                 reply_markup=kb, parse_mode="HTML")
 
     asyncio.create_task(_safe_poll_grz(
@@ -375,15 +374,15 @@ async def _safe_poll_grz(bot, user_id, chat_id, message_id, service_code, servic
 
 async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number):
     interval = config.OTP_POLL_INTERVAL
-    tries = max(1, int(config.OTP_TIMEOUT / interval))
-    for _ in range(tries):
+    max_loops = int(1800 / interval)  # 30 mins max safety net
+    for _ in range(max_loops):
         try:
             st = await grizzly.get_status(ref)
-            code = st.split(":", 1)[1] if st.startswith("STATUS_OK:") else None
         except Exception:
-            code = None
+            st = ""
             
-        if code:
+        if st.startswith("STATUS_OK:"):
+            code = st.split(":", 1)[1]
             await update_order(ref, status="completed", otp=code)
             await _edit_msg(
                 bot, chat_id, message_id,
@@ -392,22 +391,23 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                 f"<b>Number:</b> <code>{number}</code>\n<b>OTP:</b> <b>{code}</b>",
                 parse_mode="HTML", reply_markup=kb_back("menu"))
             return
+        elif st == "STATUS_CANCEL":
+            break
+            
         await asyncio.sleep(interval)
         
     await update_order(ref, status="expired")
     try:
-        res = await grizzly.set_status(ref, 8)
-        ok = res.startswith("ACCESS")
-        if ok:
-            o = await get_order(ref)
-            if o and float(o.get("price_inr", 0)):
-                await credit_wallet(o["user_id"], float(o["price_inr"]),
-                                    "Refund for expired grizzly order")
-                await update_order(ref, status="cancelled", refunded=True)
+        # Grizzly already auto-cancelled it (or we hit max safety net)
+        o = await get_order(ref)
+        if o and float(o.get("price_inr", 0)):
+            await credit_wallet(o["user_id"], float(o["price_inr"]),
+                                "Refund for expired grizzly order")
+            await update_order(ref, status="cancelled", refunded=True)
     except Exception:
         pass
         
     await _edit_msg(
         bot, chat_id, message_id,
-        "⌛ <b>OTP not received!</b>\n\nThe wait time has expired. The order has been automatically cancelled and your wallet has been fully refunded.",
+        "⌛ <b>OTP not received!</b>\n\nThe provider's wait time has expired. The order has been automatically cancelled and your wallet has been fully refunded.",
         reply_markup=kb_back("menu"))
