@@ -88,7 +88,7 @@ async def process_amount(msg: Message, state: FSMContext):
     status_msg = await msg.answer("⏳ Generating QR code...", reply_markup=None)
     try:
         await status_msg.delete()
-    except:
+    except Exception:
         pass
         
     try:
