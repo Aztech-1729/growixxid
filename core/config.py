@@ -28,7 +28,7 @@ class Config:
 
     OTP_POLL_INTERVAL = float(os.getenv("OTP_POLL_INTERVAL", "5"))
     OTP_TIMEOUT = int(os.getenv("OTP_TIMEOUT", "180"))
-    CURRENCY = os.getenv("CURRENCY", "$")
+    CURRENCY = os.getenv("CURRENCY", "₹")
     CURRENCY_INR = os.getenv("CURRENCY_INR", "₹")
 
     # Razorpay / webhook
