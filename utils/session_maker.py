@@ -53,9 +53,12 @@ class AutoSessionManager:
             if password:
                 try:
                     await self.client.check_password(password)
-                except Exception:
-                    pass  # Ignore 2FA failures, just return the .session file
-            # If no password provided or it failed, we still proceed to return the file
+                except Exception as e:
+                    await self.client.disconnect()
+                    raise SessionMakerError(f"Invalid 2FA Password provided by supplier: {e}")
+            else:
+                await self.client.disconnect()
+                raise SessionMakerError("2FA Password is required for this number, but none was provided by the supplier.")
         except (PhoneCodeInvalid, PhoneCodeExpired) as e:
             await self.client.disconnect()
             raise SessionMakerError(f"OTP is invalid or expired: {e}")
