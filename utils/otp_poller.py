@@ -4,6 +4,7 @@ The VNHOTP API has no webhooks, so after placing an order we poll until the
 OTP arrives (or the timeout expires) and then update the user's message.
 """
 import asyncio
+import time
 
 from aiogram.exceptions import TelegramBadRequest
 
@@ -32,6 +33,7 @@ async def _edit_msg(bot, chat_id, message_id, text, reply_markup=None, parse_mod
 async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, number):
     interval = config.OTP_POLL_INTERVAL
     tries = max(1, int(config.OTP_TIMEOUT / interval))
+    start_time = time.time()
 
     session_maker = None
     if service == "tg":
@@ -42,7 +44,8 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
             await _edit_msg(bot, chat_id, message_id, f"❌ Failed to request code from Telegram:\n{e}", reply_markup=kb_back("menu"))
             return
 
-    for _ in range(tries):
+    last_elapsed_min = -1
+    for i in range(tries):
         try:
             if service == "tg":
                 d = await vnhotp.tg_get_code(number)
@@ -52,12 +55,21 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                     await _edit_msg(bot, chat_id, message_id, "✅ <b>OTP Received! Generating session...</b>", parse_mode="HTML")
                     try:
                         session_file = await session_maker.sign_in_and_get_file(code, password=pwd)
+                        session_str = session_maker.session_string
                         
                         doc = FSInputFile(session_file)
+                        caption = (
+                            f"🎉 Here is your `.session` file for +{number}!\n"
+                            f"Password: <code>{pwd or '—'}</code>\n\n"
+                        )
+                        if session_str:
+                            caption += f"<b>Session String:</b>\n<code>{session_str}</code>\n\n"
+                        caption += "👉 <b>Forward this session file to this bot to get the OTP:</b> @TwsOtp_bot"
+                        
                         await bot.send_document(
                             chat_id=chat_id,
                             document=doc,
-                            caption=f"🎉 Here is your `.session` file for +{number}!\nPassword: <code>{pwd or '—'}</code>\n\n👉 <b>Forward this session file to this bot to get the OTP:</b> @TwsOtp_bot",
+                            caption=caption,
                             parse_mode="HTML",
                             reply_markup=kb_back("menu")
                         )
@@ -65,8 +77,6 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                         await update_order(ref, status="completed", otp=code, password=pwd)
                     except SessionMakerError as e:
                         await _edit_msg(bot, chat_id, message_id, f"❌ Failed to create session:\n{e}", reply_markup=kb_back("menu"))
-                        # Let's still save the order, but it's completed on provider side. The user can't use it, so we should probably refund.
-                        # However, VNHOTP charged us. We can't refund the provider. We'll just complete the order.
                         await update_order(ref, status="completed", otp=code, password=pwd)
                         
                     if session_maker:
@@ -83,6 +93,25 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                     return
         except VNHOTPError:
             pass
+
+        # Show elapsed time periodically so user knows poller is alive
+        elapsed = int(time.time() - start_time)
+        elapsed_min = elapsed // 60
+        remaining = max(0, config.OTP_TIMEOUT - elapsed)
+        remaining_min = remaining // 60
+        
+        if elapsed_min != last_elapsed_min and service != "tg":
+            last_elapsed_min = elapsed_min
+            try:
+                await _edit_msg(
+                    bot, chat_id, message_id,
+                    f"⏳ <b>Waiting for OTP…</b>\n\n"
+                    f"<b>Number:</b> <code>{number}</code>\n"
+                    f"<i>Waiting for {elapsed_min}m {elapsed % 60}s… Auto-expires in ~{remaining_min}m.</i>",
+                    parse_mode="HTML")
+            except Exception:
+                pass
+
         await asyncio.sleep(interval)
 
     await update_order(ref, status="expired")
@@ -91,7 +120,7 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
     try:
         await _edit_msg(
             bot, chat_id, message_id,
-            "⌛ OTP not received within the time limit. Order expired.",
-            reply_markup=kb_back("menu"))
+            "⌛ <b>OTP not received within the time limit.</b>\n\nOrder expired. Please try again.",
+            reply_markup=kb_back("menu"), parse_mode="HTML")
     except Exception:
         pass

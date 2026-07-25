@@ -315,11 +315,18 @@ async def poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number)
                 await _edit_msg(bot, chat_id, message_id, "✅ <b>OTP Received! Generating session...</b>", parse_mode="HTML")
                 try:
                     session_file = await session_maker.sign_in_and_get_file(code)
+                    session_str = session_maker.session_string
+                    
                     doc = FSInputFile(session_file)
+                    caption = f"🎉 Here is your `.session` file for +{number}!\n\n"
+                    if session_str:
+                        caption += f"<b>Session String:</b>\n<code>{session_str}</code>\n\n"
+                    caption += "👉 <b>Forward this session file to this bot to get the OTP:</b> @TwsOtp_bot"
+                    
                     await bot.send_document(
                         chat_id=chat_id,
                         document=doc,
-                        caption=f"🎉 Here is your `.session` file for +{number}!\n\n👉 <b>Forward this session file to this bot to get the OTP:</b> @TwsOtp_bot",
+                        caption=caption,
                         parse_mode="HTML"
                     )
                     await bot.delete_message(chat_id, message_id)

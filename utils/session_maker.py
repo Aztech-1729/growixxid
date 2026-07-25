@@ -29,6 +29,7 @@ class AutoSessionManager:
             app_version="1.0",
         )
         self.phone_code_hash = None
+        self.session_string = None
 
     async def connect_and_send_code(self) -> str:
         """Connect to TG and request the OTP. Returns the phone_code_hash."""
@@ -64,6 +65,12 @@ class AutoSessionManager:
         except Exception as e:
             await self.client.disconnect()
             raise SessionMakerError(f"Failed to sign in: {e}")
+
+        # Export the session string before disconnecting (universal format)
+        try:
+            self.session_string = await self.client.export_session_string()
+        except Exception:
+            self.session_string = None
 
         # Successfully signed in, we can disconnect to ensure DB is written
         await self.client.disconnect()

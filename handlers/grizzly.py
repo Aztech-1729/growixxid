@@ -1,6 +1,7 @@
 """Shop flow for GrizzlySMS (3000+ Services)."""
 import asyncio
 import html
+import time
 
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
@@ -17,7 +18,6 @@ from services.grizzly_api import grizzly, GrizzlySMSError
 from utils.flags import flag_from_name
 from utils.session_maker import AutoSessionManager, SessionMakerError
 from aiogram.types import FSInputFile
-import time
 
 router = Router()
 
@@ -53,7 +53,9 @@ async def _edit_msg(bot, chat_id, message_id, text, reply_markup=None, parse_mod
 def _kb_cancel(ref: str, locked: bool = False, lock_time: int = 0):
     b = InlineKeyboardBuilder()
     if locked:
-        b.button(text=f"🔒 Cancel (Available in {lock_time}s)", callback_data="locked_cancel")
+        mins = lock_time // 60
+        secs = lock_time % 60
+        b.button(text=f"🔒 Cancel (Available in {mins}m {secs:02d}s)", callback_data="locked_cancel")
     else:
         b.button(text="❌ Cancel & Refund", callback_data=f"grzcancel:{ref}",
                  style=ButtonStyle.DANGER)
@@ -62,7 +64,7 @@ def _kb_cancel(ref: str, locked: bool = False, lock_time: int = 0):
 
 @router.callback_query(F.data == "locked_cancel")
 async def cb_locked_cancel(call: CallbackQuery):
-    await call.answer("Cancel is not available yet. Please wait.", show_alert=True)
+    await call.answer("⏳ Cancel is not available yet. Please wait for the lock period to end.", show_alert=True)
 
 
 async def get_all_services():
@@ -345,7 +347,9 @@ async def cb_grzconfirm(call: CallbackQuery):
     await call.message.delete()
     
     is_tg = service_code == "tg"
-    kb = None if is_tg else _kb_cancel(ref, locked=True, lock_time=120)
+    # 2 minute lock period for cancel button
+    LOCK_SECONDS = 120
+    kb = None if is_tg else _kb_cancel(ref, locked=True, lock_time=LOCK_SECONDS)
     
     if is_tg:
         text = (
@@ -358,7 +362,8 @@ async def cb_grzconfirm(call: CallbackQuery):
             f"⏳ <b>Order placed! Waiting for OTP…</b>\n\n"
             f"<b>Service:</b> {service_name}\n<b>Number:</b> <code>{number}</code>\n"
             f"<b>Charged:</b> {display_price}\n\n"
-            f"ℹ️ <i>You can wait for the OTP or cancel manually at any time. If no OTP is received before the provider's time limit, the order will be automatically cancelled and your wallet will be fully refunded!</i>"
+            f"🔒 <i>Cancel will be available in {LOCK_SECONDS // 60}m {LOCK_SECONDS % 60:02d}s</i>\n"
+            f"ℹ️ <i>If no OTP is received before the provider's time limit, the order will be automatically cancelled and your wallet will be fully refunded!</i>"
         )
     
     new_msg = await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -404,9 +409,10 @@ async def _safe_poll_grz(bot, user_id, chat_id, message_id, service_code, servic
 async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number):
     interval = config.OTP_POLL_INTERVAL
     max_loops = int(1800 / interval)  # 30 mins max safety net
+    LOCK_SECONDS = 120  # 2 minute cancel lock
     
     start_time = time.time()
-    locked = True
+    last_update_bucket = -1  # Track to avoid duplicate edits
     
     session_maker = None
     if service_code == "tg":
@@ -429,11 +435,18 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                 await _edit_msg(bot, chat_id, message_id, "✅ <b>OTP Received! Generating session...</b>", parse_mode="HTML")
                 try:
                     session_file = await session_maker.sign_in_and_get_file(code)
+                    session_str = session_maker.session_string
+                    
                     doc = FSInputFile(session_file)
+                    caption = f"🎉 Here is your `.session` file for +{number}!\n\n"
+                    if session_str:
+                        caption += f"<b>Session String:</b>\n<code>{session_str}</code>\n\n"
+                    caption += "👉 <b>Forward this session file to this bot to get the OTP:</b> @TwsOtp_bot"
+                    
                     await bot.send_document(
                         chat_id=chat_id,
                         document=doc,
-                        caption=f"🎉 Here is your `.session` file for +{number}!\n\n👉 <b>Forward this session file to this bot to get the OTP:</b> @TwsOtp_bot",
+                        caption=caption,
                         parse_mode="HTML"
                     )
                     await bot.delete_message(chat_id, message_id)
@@ -451,42 +464,40 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                     f"✅ <b>OTP Received!</b>\n\n"
                     f"<b>Service:</b> {service_name}\n"
                     f"<b>Number:</b> <code>{number}</code>\n<b>OTP:</b> <b>{code}</b>",
-                    parse_mode="HTML")
+                    parse_mode="HTML", reply_markup=None)
                 return
         elif st == "STATUS_CANCEL":
             break
             
+        # Update cancel button and status text for non-TG services
         elapsed = int(time.time() - start_time)
         if service_code != "tg":
-            if locked:
-                remaining_lock = 120 - elapsed
-                if remaining_lock <= 0:
-                    locked = False
-                    try:
-                        await _edit_msg(bot, chat_id, message_id,
-                            f"⏳ <b>Waiting for OTP…</b>\n\n<b>Number:</b> <code>{number}</code>\n"
-                            f"<i>Order will auto-expire in {int(20 - elapsed/60)} minutes.</i>",
-                            reply_markup=_kb_cancel(ref), parse_mode="HTML")
-                    except TelegramBadRequest:
-                        pass
-                else:
-                    try:
-                        await _edit_msg(bot, chat_id, message_id,
-                            f"⏳ <b>Waiting for OTP…</b>\n\n<b>Number:</b> <code>{number}</code>\n"
-                            f"<i>Order will auto-expire in {int(20 - elapsed/60)} minutes.</i>",
-                            reply_markup=_kb_cancel(ref, locked=True, lock_time=remaining_lock), parse_mode="HTML")
-                    except TelegramBadRequest:
-                        pass
-            else:
-                # Just update the expiry timer every minute or so, but let's do it every 15s to avoid flood
-                if elapsed % 15 < interval:
-                    try:
-                        await _edit_msg(bot, chat_id, message_id,
-                            f"⏳ <b>Waiting for OTP…</b>\n\n<b>Number:</b> <code>{number}</code>\n"
-                            f"<i>Order will auto-expire in {int(20 - elapsed/60)} minutes.</i>",
-                            reply_markup=_kb_cancel(ref), parse_mode="HTML")
-                    except TelegramBadRequest:
-                        pass
+            # Update every 10 seconds to avoid Telegram "message not modified" errors
+            update_bucket = elapsed // 10
+            if update_bucket != last_update_bucket:
+                last_update_bucket = update_bucket
+                
+                remaining_lock = max(0, LOCK_SECONDS - elapsed)
+                is_locked = remaining_lock > 0
+                expiry_remaining = max(0, 1200 - elapsed)  # ~20 min max
+                expiry_min = expiry_remaining // 60
+                
+                text = (
+                    f"⏳ <b>Waiting for OTP…</b>\n\n"
+                    f"<b>Number:</b> <code>{number}</code>\n"
+                )
+                if is_locked:
+                    lock_min = remaining_lock // 60
+                    lock_sec = remaining_lock % 60
+                    text += f"🔒 <i>Cancel available in {lock_min}m {lock_sec:02d}s</i>\n"
+                text += f"<i>Order auto-expires in ~{expiry_min} min</i>"
+                
+                kb = _kb_cancel(ref, locked=is_locked, lock_time=remaining_lock)
+                try:
+                    await _edit_msg(bot, chat_id, message_id, text,
+                                    reply_markup=kb, parse_mode="HTML")
+                except TelegramBadRequest:
+                    pass
             
         await asyncio.sleep(interval)
         
@@ -506,4 +517,4 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
     await _edit_msg(
         bot, chat_id, message_id,
         "⌛ <b>OTP not received!</b>\n\nThe provider's wait time has expired. The order has been automatically cancelled and your wallet has been fully refunded.",
-        reply_markup=None, parse_mode="HTML")
+        reply_markup=kb_back("menu"), parse_mode="HTML")
