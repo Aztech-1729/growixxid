@@ -1,7 +1,8 @@
 """Utility to automatically create Telegram .session files."""
 import os
-from pyrogram import Client
-from pyrogram.errors import SessionPasswordNeeded, PhoneCodeInvalid, PhoneCodeExpired
+import asyncio
+from telethon import TelegramClient
+from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError
 
 from core.config import config
 
@@ -21,10 +22,10 @@ class AutoSessionManager:
         if not config.API_ID or not config.API_HASH:
             raise SessionMakerError("API_ID and API_HASH are not configured in .env")
             
-        self.client = Client(
-            name=self.session_path,
-            api_id=config.API_ID,
-            api_hash=config.API_HASH,
+        self.client = TelegramClient(
+            self.session_path,
+            int(config.API_ID),
+            config.API_HASH,
             device_model="Desktop",
             app_version="1.0",
         )
@@ -35,7 +36,7 @@ class AutoSessionManager:
         """Connect to TG and request the OTP. Returns the phone_code_hash."""
         await self.client.connect()
         try:
-            sent_code = await self.client.send_code(self.phone_number)
+            sent_code = await self.client.send_code_request(self.phone_number)
             self.phone_code_hash = sent_code.phone_code_hash
             return self.phone_code_hash
         except Exception as e:
@@ -48,36 +49,29 @@ class AutoSessionManager:
             raise SessionMakerError("Must call connect_and_send_code first.")
             
         try:
-            await self.client.sign_in(self.phone_number, self.phone_code_hash, otp)
-        except SessionPasswordNeeded:
+            await self.client.sign_in(self.phone_number, code=otp, phone_code_hash=self.phone_code_hash)
+        except SessionPasswordNeededError:
             if password:
                 try:
-                    import asyncio
                     await asyncio.sleep(2)
-                    await self.client.check_password(password)
+                    await self.client.sign_in(password=password)
                 except Exception as e:
                     await self.client.disconnect()
                     raise SessionMakerError(f"Invalid 2FA Password provided by supplier: {e}")
             else:
                 await self.client.disconnect()
                 raise SessionMakerError("2FA Password is required for this number, but none was provided by the supplier.")
-        except (PhoneCodeInvalid, PhoneCodeExpired) as e:
+        except (PhoneCodeInvalidError, PhoneCodeExpiredError) as e:
             await self.client.disconnect()
             raise SessionMakerError(f"OTP is invalid or expired: {e}")
         except Exception as e:
             await self.client.disconnect()
             raise SessionMakerError(f"Failed to sign in: {e}")
 
-        # Export the session string before disconnecting (universal format)
-        try:
-            self.session_string = await self.client.export_session_string()
-        except Exception:
-            self.session_string = None
-
-        # Successfully signed in, we can disconnect to ensure DB is written
+        # Successfully signed in, disconnect to ensure DB is written
         await self.client.disconnect()
         
-        # The file is created by pyrogram at `sessions/sess_123456.session`
+        # Telethon creates the file at `sessions/sess_123456.session`
         file_path = f"{self.session_path}.session"
         if not os.path.exists(file_path):
             raise SessionMakerError("Session file was not generated properly.")

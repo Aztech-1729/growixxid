@@ -70,13 +70,17 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                             chat_id=chat_id,
                             document=doc,
                             caption=caption,
-                            parse_mode="HTML",
-                            reply_markup=kb_back("menu")
+                            parse_mode="HTML"
                         )
                         await bot.delete_message(chat_id, message_id)
                         await update_order(ref, status="completed", otp=code, password=pwd)
                     except SessionMakerError as e:
-                        await _edit_msg(bot, chat_id, message_id, f"❌ Failed to create session:\n{e}", reply_markup=kb_back("menu"))
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=f"❌ <b>Failed to create Telegram session.</b>\n\n<b>Error:</b> {e}\n\n<b>Here is your OTP anyway:</b> <code>{code}</code>",
+                            parse_mode="HTML"
+                        )
+                        await bot.delete_message(chat_id, message_id)
                         await update_order(ref, status="completed", otp=code, password=pwd)
                         
                     if session_maker:
