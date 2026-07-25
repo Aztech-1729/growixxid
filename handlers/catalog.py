@@ -353,13 +353,6 @@ async def cb_get_otp(call: CallbackQuery):
     else:
         await bot.answer_callback_query(call.id, "⏳ No new OTP received yet or order expired.", show_alert=True)
         return
-            
-        await update_order(ref, status="cancelled", refund=str(res.get("message", "")), refunded=True)
-        await _edit(call.message,
-                    f"✅ Order cancelled & refunded.\n{res.get('message', '')}",
-                    reply_markup=kb_back("menu"))
-    except VNHOTPError as e:
-        await call.answer(f"❌ Could not cancel: {e}", show_alert=True)
 
 
 async def _safe_poll(bot, user_id, chat_id, message_id, service, ref, number):
