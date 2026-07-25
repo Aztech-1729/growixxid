@@ -325,39 +325,24 @@ async def cb_get_otp(call: CallbackQuery):
     
     await call.bot.answer_callback_query(call.id, "🔄 Fetching latest OTP...", show_alert=False)
     
-    # For Telegram accounts, try to check inbox via stored session first
+    # For Telegram accounts, try to check Telegram official OTP sender (777000)
     if provider in ("vnhotp", "tiger", "grizzly"):
         from core.db import get_order
         o = await get_order(ref)
         if o and o.get("session_string"):
             try:
-                from telethon import TelegramClient
+                from telethon import TelegramClient, types
                 from telethon.sessions import StringSession
                 from core.config import config
                 client = TelegramClient(StringSession(o["session_string"]), int(config.API_ID), config.API_HASH)
                 await client.connect()
                 if await client.is_user_authorized():
                     codes = []
-                    # Check messages from 777000 (Telegram's official OTP sender)
                     try:
-                        from telethon import types
-                        otp_entity = types.PeerUser(777000)
-                        msgs = await client.get_messages(otp_entity, limit=10)
+                        msgs = await client.get_messages(types.PeerUser(777000), limit=10)
                         for m in msgs:
                             if m.text:
-                                found = re.findall(r'\b(\d{4,8})\b', m.text)
-                                for c in found:
-                                    if c not in codes:
-                                        codes.append(c)
-                    except Exception:
-                        pass
-                    # Also check "me" (Saved Messages) as fallback
-                    try:
-                        msgs = await client.get_messages("me", limit=10)
-                        for m in msgs:
-                            if m.text:
-                                found = re.findall(r'\b(\d{4,8})\b', m.text)
-                                for c in found:
+                                for c in re.findall(r'\b(\d{4,8})\b', m.text):
                                     if c not in codes:
                                         codes.append(c)
                     except Exception:
@@ -366,7 +351,7 @@ async def cb_get_otp(call: CallbackQuery):
                     if codes:
                         await call.bot.answer_callback_query(
                             call.id,
-                            f"✅ Codes found: {', '.join(codes[:3])}",
+                            f"✅ Codes from Telegram: {', '.join(codes[:3])}",
                             show_alert=True
                         )
                         return
