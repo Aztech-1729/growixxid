@@ -7,7 +7,7 @@ class RateFetchError(Exception):
     """Raised when the live rate API is unreachable."""
 
 
-_cache = {"rate": None, "updated": 0}
+_cache = {"rate": None, "updated": 0, "rub_rate": None, "rub_updated": 0}
 
 async def usd_to_inr() -> float:
     now = time.time()
@@ -20,3 +20,15 @@ async def usd_to_inr() -> float:
         _cache["rate"] = float(r.json()["rates"]["INR"])
         _cache["updated"] = now
     return _cache["rate"]
+
+async def rub_to_inr() -> float:
+    now = time.time()
+    if _cache["rub_rate"] is not None and now - _cache["rub_updated"] < 300:
+        return _cache["rub_rate"]
+    async with httpx.AsyncClient(timeout=10) as c:
+        r = await c.get("https://api.exchangerate-api.com/v4/latest/RUB")
+        if r.status_code != 200:
+            raise RateFetchError(f"Rate API returned HTTP {r.status_code}")
+        _cache["rub_rate"] = float(r.json()["rates"]["INR"])
+        _cache["rub_updated"] = now
+    return _cache["rub_rate"]

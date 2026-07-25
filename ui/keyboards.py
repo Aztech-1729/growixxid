@@ -225,12 +225,14 @@ def kb_admin():
     b = InlineKeyboardBuilder()
     b.button(text="🔄 Refresh", callback_data="admin", style=PRIMARY)
     b.button(text="👥 User Lookup", callback_data="admin_user_lookup", style=PRIMARY)
+    b.button(text="👥 All Users", callback_data="admin_users:0", style=PRIMARY)
+    b.button(text="📦 All Orders", callback_data="admin_orders:0", style=PRIMARY)
+    b.button(text="❌ Failed Orders", callback_data="admin_failed:0", style=PRIMARY)
+    b.button(text="📊 Sales Report", callback_data="admin_sales", style=PRIMARY)
     b.button(text="⚙️ Margin %", callback_data="admin_margin", style=PRIMARY)
     b.button(text="🔌 Suppliers", callback_data="admin_suppliers", style=PRIMARY)
-    b.button(text="📊 Sales Report", callback_data="admin_sales", style=PRIMARY)
-    b.button(text="❌ Failed Orders", callback_data="admin_failed", style=PRIMARY)
     b.button(text="Back", callback_data="menu", style=DANGER, icon_custom_emoji_id="5352759161945867747")
-    b.adjust(1, 2, 2, 1, 1)
+    b.adjust(1, 2, 2, 2, 1, 1)
     return b.as_markup()
 
 def kb_admin_user(user_id: int, is_banned: bool):
@@ -251,4 +253,22 @@ def kb_admin_suppliers(active_list: list):
         b.button(text=f"{status} {s.upper()}", callback_data=f"admin_sup_toggle:{s}")
     b.button(text="Back", callback_data="admin", style=DANGER, icon_custom_emoji_id="5352759161945867747")
     b.adjust(1)
+    return b.as_markup()
+
+def kb_admin_list_nav(callback_prefix: str, page: int, has_more: bool):
+    b = InlineKeyboardBuilder()
+    nav_btns = 0
+    if page > 0:
+        b.button(text="◀️ Prev", callback_data=f"{callback_prefix}:{page - 1}", style=PRIMARY)
+        nav_btns += 1
+    if has_more:
+        b.button(text="Next ▶️", callback_data=f"{callback_prefix}:{page + 1}", style=PRIMARY)
+        nav_btns += 1
+    
+    if nav_btns > 0:
+        b.adjust(nav_btns)
+        
+    b.button(text="Back", callback_data="admin", style=DANGER, icon_custom_emoji_id="5352759161945867747")
+    sizes = [nav_btns, 1] if nav_btns > 0 else [1]
+    b.adjust(*sizes)
     return b.as_markup()

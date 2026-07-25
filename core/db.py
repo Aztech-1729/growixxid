@@ -87,6 +87,14 @@ async def count_orders() -> int:
 async def get_all_users():
     return await users.find({}).to_list(length=100000)
 
+async def get_all_users_paginated(skip: int = 0, limit: int = 10):
+    cur = users.find({}).sort("joined_at", -1).skip(skip).limit(limit)
+    return await cur.to_list(length=limit)
+
+async def get_all_orders_paginated(skip: int = 0, limit: int = 10):
+    cur = orders.find({}).sort("created_at", -1).skip(skip).limit(limit)
+    return await cur.to_list(length=limit)
+
 
 # ---- wallet ----
 async def get_wallet(user_id: int) -> float:
@@ -190,4 +198,11 @@ async def get_sales_report() -> dict:
 
 async def get_recent_failed_orders(limit: int = 5):
     cur = orders.find({"status": {"$in": ["refunded", "failed"]}}).sort("created_at", -1).limit(limit)
+    return await cur.to_list(length=limit)
+
+async def count_failed_orders() -> int:
+    return await orders.count_documents({"status": {"$in": ["refunded", "failed"]}})
+
+async def get_failed_orders_paginated(skip: int = 0, limit: int = 10):
+    cur = orders.find({"status": {"$in": ["refunded", "failed"]}}).sort("created_at", -1).skip(skip).limit(limit)
     return await cur.to_list(length=limit)

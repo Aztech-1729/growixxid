@@ -6,13 +6,15 @@ from aiogram.types import CallbackQuery, Message
 from core.config import config
 from core.db import (count_orders, count_users, get_all_users, get_setting, set_setting, 
                      get_user, toggle_ban_user, credit_wallet, deduct_wallet, 
-                     get_sales_report, get_recent_failed_orders)
-from ui.keyboards import kb_admin, kb_back, kb_admin_user, kb_admin_suppliers
+                     get_sales_report, get_all_orders_paginated, get_all_users_paginated, 
+                     count_failed_orders, get_failed_orders_paginated)
+from ui.keyboards import kb_admin, kb_back, kb_admin_user, kb_admin_suppliers, kb_admin_list_nav
 from services.suppliers import SUPPLIERS, balance as supplier_balance
 from services.vnhotp import VNHOTPError, vnhotp
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from core.states import AdminState
+from utils.rates import usd_to_inr, rub_to_inr
 
 router = Router()
 
@@ -26,21 +28,16 @@ async def _edit(msg, text, reply_markup=None, parse_mode=None):
             pass
 
 
-def _fmt(amount) -> str:
-    try:
-        return f"{config.CURRENCY}{float(amount) * config.USD_INR_RATE:.2f}"
-    except (TypeError, ValueError):
-        return f"error: {amount}"
-
-
 async def _panel() -> str:
     lines = ["👑 <b>Admin Panel</b>\n"]
+    rate_usd = await usd_to_inr()
+    rate_rub = await rub_to_inr()
 
     # VNHOTP (primary)
     try:
         bal = await vnhotp.check()
-        vbal = bal.get("user", {}).get("balance")
-        lines.append(f"VNHOTP balance: {_fmt(vbal)}")
+        vbal = float(bal.get("user", {}).get("balance", 0))
+        lines.append(f"VNHOTP balance: ${vbal:.2f} (≈ ₹{vbal * rate_usd:.2f})")
         discount = bal.get('api', {}).get('discount')
         lines.append(f"  discount: {discount or 'none'}")
     except VNHOTPError as e:
@@ -49,15 +46,16 @@ async def _panel() -> str:
     # Alternate suppliers
     for sid, sup in SUPPLIERS.items():
         try:
-            lines.append(f"{sup['name']} balance: {_fmt(await supplier_balance(sid))}")
+            s_bal = float(await supplier_balance(sid))
+            lines.append(f"{sup['name']} balance: ${s_bal:.2f} (≈ ₹{s_bal * rate_usd:.2f})")
         except Exception as e:
             lines.append(f"{sup['name']} balance: error ({e})")
             
     # Grizzly SMS
     try:
         from services.grizzly_api import grizzly
-        g_bal = await grizzly.balance()
-        lines.append(f"Grizzly balance: ₽ {g_bal:.2f}")
+        g_bal = float(await grizzly.balance())
+        lines.append(f"Grizzly balance: ₽{g_bal:.2f} (≈ ₹{g_bal * rate_rub:.2f})")
     except Exception as e:
         lines.append(f"Grizzly balance: error ({e})")
 
@@ -69,6 +67,7 @@ async def _panel() -> str:
     lines.append("")
     lines.append("Reply to any message with /bd to broadcast it to all users.")
     return "\n".join(lines)
+
 
 
 @router.message(Command("admin"))
@@ -345,18 +344,63 @@ async def cb_admin_sales(call: CallbackQuery):
     await _edit(call.message, text, reply_markup=kb_back("admin"), parse_mode="HTML")
 
 
-@router.callback_query(F.data == "admin_failed")
+PAGE_SIZE = 10
+
+@router.callback_query(F.data.startswith("admin_orders:"))
+async def cb_admin_orders(call: CallbackQuery):
+    if call.from_user.id not in config.ADMIN_IDS: return
+    await call.answer()
+    page = int(call.data.split(":")[1])
+    total = await count_orders()
+    orders = await get_all_orders_paginated(skip=page*PAGE_SIZE, limit=PAGE_SIZE)
+    
+    if not orders and page > 0:
+        await call.answer("No more orders.", show_alert=True)
+        return
+        
+    text = f"📦 <b>All Orders (Page {page + 1})</b>\nTotal: {total}\n\n"
+    for o in orders:
+        text += f"• <code>{o.get('order_ref')}</code> | {o.get('service').upper()} | ₹{o.get('price_inr', 0):.2f} | {o.get('status').upper()}\n"
+        
+    has_more = (page + 1) * PAGE_SIZE < total
+    await _edit(call.message, text, reply_markup=kb_admin_list_nav("admin_orders", page, has_more), parse_mode="HTML")
+
+@router.callback_query(F.data.startswith("admin_failed:"))
 async def cb_admin_failed(call: CallbackQuery):
     if call.from_user.id not in config.ADMIN_IDS: return
     await call.answer()
+    page = int(call.data.split(":")[1])
+    total = await count_failed_orders()
+    orders = await get_failed_orders_paginated(skip=page*PAGE_SIZE, limit=PAGE_SIZE)
     
-    recent = await get_recent_failed_orders(limit=10)
-    if not recent:
-        await _edit(call.message, "❌ No recent failed/refunded orders.", reply_markup=kb_back("admin"), parse_mode="HTML")
+    if not orders and page > 0:
+        await call.answer("No more failed orders.", show_alert=True)
         return
         
-    text = "❌ <b>Recent Failed Orders (Last 10)</b>\n\n"
-    for o in recent:
-        text += f"• <code>{o.get('order_ref')}</code> | {o.get('service').upper()} | {o.get('country_name')} | {o.get('status')}\n"
+    text = f"❌ <b>Failed Orders (Page {page + 1})</b>\nTotal: {total}\n\n"
+    for o in orders:
+        text += f"• <code>{o.get('order_ref')}</code> | {o.get('service').upper()} | ₹{o.get('price_inr', 0):.2f} | {o.get('status').upper()}\n"
         
-    await _edit(call.message, text, reply_markup=kb_back("admin"), parse_mode="HTML")
+    has_more = (page + 1) * PAGE_SIZE < total
+    await _edit(call.message, text, reply_markup=kb_admin_list_nav("admin_failed", page, has_more), parse_mode="HTML")
+
+@router.callback_query(F.data.startswith("admin_users:"))
+async def cb_admin_users(call: CallbackQuery):
+    if call.from_user.id not in config.ADMIN_IDS: return
+    await call.answer()
+    page = int(call.data.split(":")[1])
+    total = await count_users()
+    users = await get_all_users_paginated(skip=page*PAGE_SIZE, limit=PAGE_SIZE)
+    
+    if not users and page > 0:
+        await call.answer("No more users.", show_alert=True)
+        return
+        
+    text = f"👥 <b>All Users (Page {page + 1})</b>\nTotal: {total}\n\n"
+    for u in users:
+        joined = u.get("joined_at")
+        joined_str = joined.strftime("%Y-%m-%d") if joined else "Unknown"
+        text += f"• <code>{u.get('user_id')}</code> | @{u.get('username', 'N/A')} | ₹{u.get('wallet', 0):.2f} | {joined_str}\n"
+        
+    has_more = (page + 1) * PAGE_SIZE < total
+    await _edit(call.message, text, reply_markup=kb_admin_list_nav("admin_users", page, has_more), parse_mode="HTML")
