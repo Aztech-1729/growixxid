@@ -42,8 +42,17 @@ async def _countries(service: str, user_id: int) -> list:
             "price": float(c["price"]) * (1 + margin / 100) if c.get("price") is not None else None,
             "qty": c.get("count"),
         } for c in raw]
-    CACHE.setdefault(user_id, {})[service] = countries
-    return countries
+        
+    from core.db import get_blacklisted
+    blacklisted = await get_blacklisted()
+    
+    filtered_countries = []
+    for c in countries:
+        if ("vnhotp", service, c["code"].upper()) not in blacklisted:
+            filtered_countries.append(c)
+            
+    CACHE.setdefault(user_id, {})[service] = filtered_countries
+    return filtered_countries
 
 
 @router.callback_query(F.data == "catalog")
@@ -210,8 +219,15 @@ async def cb_confirm(call: CallbackQuery):
         await _edit(call.message, "✅ <b>Done!</b>", parse_mode="HTML")
         await asyncio.sleep(0.3)
     except VNHOTPError as e:
-        await _edit(call.message, f"❌ Order failed: {html.escape(str(e))}",
-                    reply_markup=kb_back("catalog"))
+        err_msg = str(e).lower()
+        if any(x in err_msg for x in ["stock", "sold out", "no numbers", "empty", "available"]):
+            from core.db import add_to_blacklist
+            await add_to_blacklist("vnhotp", service, code.upper())
+            await _edit(call.message, f"❌ Out of stock! This country has been permanently removed from {service.upper()}.",
+                        reply_markup=kb_back("catalog"))
+        else:
+            await _edit(call.message, f"❌ Order failed: {html.escape(str(e))}",
+                        reply_markup=kb_back("catalog"))
         return
 
     await deduct_wallet(call.from_user.id, inr, f"order {service} {code}")

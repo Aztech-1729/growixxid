@@ -20,6 +20,7 @@ users: "object" = db["users"]
 orders: "object" = db["orders"]
 settings: "object" = db["settings"]
 transactions: "object" = db["transactions"]
+blacklist: "object" = db["blacklist"]
 
 
 async def init_indexes() -> None:
@@ -28,6 +29,7 @@ async def init_indexes() -> None:
     await orders.create_index("order_ref", unique=True)
     await orders.create_index([("user_id", 1), ("created_at", -1)])
     await orders.create_index("status")
+    await blacklist.create_index([("supplier", 1), ("service", 1), ("country", 1)], unique=True)
     await transactions.create_index([("user_id", 1), ("created_at", -1)])
     await settings.create_index("key", unique=True)
 
@@ -269,3 +271,29 @@ async def count_failed_orders() -> int:
 async def get_failed_orders_paginated(skip: int = 0, limit: int = 10):
     cur = orders.find({"status": {"$in": ["refunded", "failed"]}}).sort("created_at", -1).skip(skip).limit(limit)
     return await cur.to_list(length=limit)
+
+async def add_to_blacklist(supplier: str, service: str, country: str):
+    """Add a country to the blacklist for a given service and supplier due to out of stock."""
+    from pymongo.errors import DuplicateKeyError
+    try:
+        await blacklist.insert_one({
+            "supplier": supplier,
+            "service": service,
+            "country": country,
+            "created_at": datetime.datetime.now(timezone.utc)
+        })
+    except DuplicateKeyError:
+        pass
+
+async def get_blacklisted() -> set:
+    """Return a set of tuples (supplier, service, country) that are blacklisted."""
+    cur = blacklist.find({})
+    res = set()
+    async for doc in cur:
+        res.add((doc["supplier"], doc["service"], doc["country"]))
+    return res
+
+async def clear_blacklist() -> int:
+    """Clear all blacklisted countries. Returns deleted count."""
+    res = await blacklist.delete_many({})
+    return res.deleted_count

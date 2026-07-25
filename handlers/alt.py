@@ -94,6 +94,17 @@ async def cb_altcat(call: CallbackQuery):
         await _edit(call.message, f"❌ {e}", reply_markup=kb_back(f"alt:{sid}"),
                     parse_mode="HTML")
         return
+        
+    from core.db import get_blacklisted
+    blacklisted = await get_blacklisted()
+    
+    filtered_items = []
+    for item in items:
+        if (sid, service, str(item.id).upper()) not in blacklisted:
+            filtered_items.append(item)
+            
+    items = filtered_items
+    
     if not items:
         await _edit(call.message, "😕 No numbers available right now for this service.",
                     reply_markup=kb_back(f"alt:{sid}"))
@@ -221,9 +232,16 @@ async def cb_altconfirm(call: CallbackQuery):
         await _edit(call.message, "✅ <b>Done!</b>", parse_mode="HTML")
         await asyncio.sleep(0.3)
     except Exception as e:
-        await _edit(call.message,
-                    f"❌ Order failed: {html.escape(str(e))}",
-                    reply_markup=kb_back("catalog"))
+        err_msg = str(e).lower()
+        if any(x in err_msg for x in ["stock", "sold out", "no numbers", "empty", "available"]):
+            from core.db import add_to_blacklist
+            await add_to_blacklist(sid, service, str(item_id).upper())
+            await _edit(call.message, f"❌ Out of stock! This country has been permanently removed from {service.upper()}.",
+                        reply_markup=kb_back(f"alt:{sid}"))
+        else:
+            await _edit(call.message,
+                        f"❌ Order failed: {html.escape(str(e))}",
+                        reply_markup=kb_back("catalog"))
         return
 
     ref = res["ref"]

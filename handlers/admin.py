@@ -428,3 +428,10 @@ async def cb_admin_users(call: CallbackQuery):
         
     has_more = (page + 1) * PAGE_SIZE < total
     await _edit(call.message, text, reply_markup=kb_admin_list_nav("admin_users", page, has_more), parse_mode="HTML")
+@router.message(Command("clearblacklist"))
+async def cmd_clearblacklist(message: Message):
+    if message.from_user.id not in config.ADMIN_IDS:
+        return
+    from core.db import clear_blacklist
+    count = await clear_blacklist()
+    await message.reply(f"✅ <b>Blacklist Cleared!</b>\n\nRemoved {count} permanently blacklisted (out of stock) combinations from the database.", parse_mode="HTML")
