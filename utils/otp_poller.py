@@ -74,7 +74,7 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                             reply_markup=kb_get_otp("vnhotp", ref, number)
                         )
                         await bot.delete_message(chat_id, message_id)
-                        await update_order(ref, status="completed", otp=code, password=pwd)
+                        await update_order(ref, status="completed", otp=code, password=pwd, session_string=session_str or "")
                     except SessionMakerError as e:
                         await bot.send_message(
                             chat_id=chat_id,
@@ -83,9 +83,6 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                         )
                         await bot.delete_message(chat_id, message_id)
                         await update_order(ref, status="completed", otp=code, password=pwd)
-                        
-                    if session_maker:
-                        session_maker.cleanup()
                     return
             else:
                 code = await vnhotp.wp_get_status(service, ref)

@@ -3,6 +3,7 @@ import os
 import asyncio
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError
+from telethon.sessions import StringSession
 
 from core.config import config
 
@@ -68,6 +69,9 @@ class AutoSessionManager:
             await self.client.disconnect()
             raise SessionMakerError(f"Failed to sign in: {e}")
 
+        # Export session string (works with both Telethon StringSession and Pyrogram/Kurigram)
+        self.session_string = StringSession.save(self.client.session)
+        
         # Successfully signed in, disconnect to ensure DB is written
         await self.client.disconnect()
         
@@ -75,20 +79,6 @@ class AutoSessionManager:
         file_path = f"{self.session_path}.session"
         if not os.path.exists(file_path):
             raise SessionMakerError("Session file was not generated properly.")
-            
-        try:
-            import subprocess
-            # Convert Telethon session to universally accepted Pyrogram session format
-            subprocess.run([
-                "tgconvertor", "convert", file_path, 
-                "-f", "telethon", "-t", "pyrogram", 
-                "-o", f"{file_path}.pyro"
-            ], check=True, capture_output=True)
-            # Replace the telethon file with the pyrogram file
-            os.replace(f"{file_path}.pyro", file_path)
-        except Exception:
-            # If conversion fails for any reason, we fall back to the original Telethon file
-            pass
             
         return file_path
 

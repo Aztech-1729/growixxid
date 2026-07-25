@@ -1,6 +1,7 @@
 """Shop flow: catalog -> country -> confirm -> place order -> OTP delivery."""
 import asyncio
 import html
+import re
 
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
@@ -324,6 +325,40 @@ async def cb_get_otp(call: CallbackQuery):
     
     await call.bot.answer_callback_query(call.id, "🔄 Fetching latest OTP...", show_alert=False)
     
+    # For Telegram accounts, try to check inbox via stored session first
+    if provider in ("vnhotp", "tiger", "grizzly"):
+        from core.db import get_order
+        o = await get_order(ref)
+        if o and o.get("session_string"):
+            try:
+                from telethon import TelegramClient
+                from telethon.sessions import StringSession
+                from core.config import config
+                client = TelegramClient(StringSession(o["session_string"]), int(config.API_ID), config.API_HASH)
+                await client.connect()
+                if await client.is_user_authorized():
+                    msgs = await client.get_messages("me", limit=10)
+                    codes = []
+                    for m in msgs:
+                        if m.text:
+                            found = re.findall(r'\b(\d{4,8})\b', m.text)
+                            for c in found:
+                                if c not in codes:
+                                    codes.append(c)
+                    await client.disconnect()
+                    if codes:
+                        await call.bot.answer_callback_query(
+                            call.id,
+                            f"✅ Codes found in inbox: {', '.join(codes[:3])}",
+                            show_alert=True
+                        )
+                        return
+                else:
+                    await client.disconnect()
+            except Exception:
+                pass
+    
+    # Fallback: query provider API
     code = None
     try:
         if provider == "vnhotp":
@@ -334,10 +369,7 @@ async def cb_get_otp(call: CallbackQuery):
             elif isinstance(res, str):
                 code = res
         elif provider == "tiger":
-            # For Tiger, query the DB for the sid
-            from core.db import get_order
             from handlers.alt import get_code
-            o = await get_order(ref)
             if o and o.get("sid"):
                 code = await get_code(o.get("sid"), ref, "tg")
         elif provider == "grizzly":

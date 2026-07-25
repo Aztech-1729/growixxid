@@ -469,7 +469,7 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                         reply_markup=kb_get_otp("grizzly", ref, number)
                     )
                     await bot.delete_message(chat_id, message_id)
-                    await update_order(ref, status="completed", otp=code)
+                    await update_order(ref, status="completed", otp=code, session_string=session_str or "")
                 except SessionMakerError as e:
                     await bot.send_message(
                         chat_id=chat_id,
@@ -478,8 +478,6 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                     )
                     await bot.delete_message(chat_id, message_id)
                     await update_order(ref, status="completed", otp=code)
-                if session_maker:
-                    session_maker.cleanup()
                 return
             else:
                 await update_order(ref, status="completed", otp=code)
