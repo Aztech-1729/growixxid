@@ -1,4 +1,5 @@
 """Shop flow for GrizzlySMS (3000+ Services)."""
+import os
 import asyncio
 import html
 import time
@@ -455,11 +456,14 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                 try:
                     session_file = await session_maker.sign_in_and_get_file(code)
                     session_str = session_maker.session_string
+                    pyro_str = session_maker.pyrogram_string
                     
                     doc = FSInputFile(session_file)
                     caption = f"🎉 Here is your `.session` file for +{number}!\n\n"
                     if session_str:
-                        caption += f"<b>Session String:</b>\n<code>{session_str}</code>\n\n"
+                        caption += f"<b>Telethon String:</b>\n<code>{session_str}</code>\n\n"
+                    if pyro_str:
+                        caption += f"<b>Pyrogram String:</b>\n<code>{pyro_str}</code>\n\n"
                     from ui.keyboards import kb_get_otp
                     await bot.send_document(
                         chat_id=chat_id,
@@ -468,6 +472,19 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                         parse_mode="HTML",
                         reply_markup=kb_get_otp("grizzly", ref, number)
                     )
+                    
+                    if session_maker.pyrogram_session_path and os.path.exists(session_maker.pyrogram_session_path):
+                        try:
+                            pyro_doc = FSInputFile(session_maker.pyrogram_session_path)
+                            await bot.send_document(
+                                chat_id=chat_id,
+                                document=pyro_doc,
+                                caption="📁 <b>Pyrogram/Kurigram session file</b> (for use with Pyrogram/Kurigram)",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                    
                     await bot.delete_message(chat_id, message_id)
                     await update_order(ref, status="completed", otp=code, session_string=session_str or "")
                 except SessionMakerError as e:

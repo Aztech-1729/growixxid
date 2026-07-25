@@ -8,4 +8,4 @@ razorpay>=1.4
 aiohttp>=3.9
 pycountry>=24
 TgCrypto>=1.2
-tgconvertor>=0.1.4
+pyrogram>=2.0
