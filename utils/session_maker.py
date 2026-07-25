@@ -52,6 +52,8 @@ class AutoSessionManager:
         except SessionPasswordNeeded:
             if password:
                 try:
+                    import asyncio
+                    await asyncio.sleep(2)
                     await self.client.check_password(password)
                 except Exception as e:
                     await self.client.disconnect()
