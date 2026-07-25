@@ -57,19 +57,25 @@ def verify_webhook(body, signature: str) -> bool:
         print("❌ Webhook signature verification failed:", e)
         return False
 
-async def get_balance() -> float:
-    """Fetch Razorpay primary balance (INR)."""
-    import requests
+async def get_today_payments() -> float:
+    """Fetch total Razorpay payments captured today (IST)."""
     import asyncio
+    import datetime
+    from datetime import timezone, timedelta
     
     def fetch():
-        auth = (config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET)
-        resp = requests.get("https://api.razorpay.com/v1/balances", auth=auth)
-        resp.raise_for_status()
-        data = resp.json()
-        items = data.get("items", [])
-        if items:
-            return float(items[0].get("balance", 0)) / 100.0
-        return 0.0
+        IST = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.datetime.now(IST)
+        today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start_utc = today_start_ist.astimezone(timezone.utc)
+        ts = int(today_start_utc.timestamp())
         
+        try:
+            payments = client().payment.all({'from': ts})
+            total = sum(p['amount'] for p in payments.get('items', []) if p.get('status') == 'captured') / 100.0
+            return total
+        except Exception as e:
+            print("Razorpay API Error:", e)
+            return 0.0
+            
     return await asyncio.to_thread(fetch)
