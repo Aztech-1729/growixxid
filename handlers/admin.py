@@ -1,4 +1,5 @@
 """Admin handlers: live provider balances, stats, broadcast."""
+import html
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
@@ -201,8 +202,8 @@ async def process_user_lookup(msg: Message, state: FSMContext):
     
     text = (
         f"👤 <b>User Profile:</b> {uid}\n"
-        f"<b>Name:</b> {u.get('first_name', '')} {u.get('last_name', '')}\n"
-        f"<b>Username:</b> @{u.get('username', 'N/A')}\n"
+        f"<b>Name:</b> {html.escape(u.get('first_name') or '')} {html.escape(u.get('last_name') or '')}\n"
+        f"<b>Username:</b> @{html.escape(u.get('username') or 'N/A')}\n"
         f"<b>Joined:</b> {joined_str}\n"
         f"<b>Wallet Balance:</b> ₹{wallet:.2f}\n"
         f"<b>Status:</b> {'🚫 BANNED' if banned else '✅ Active'}\n"
@@ -225,8 +226,8 @@ async def cb_admin_ban_toggle(call: CallbackQuery):
     joined_str = joined.strftime("%Y-%m-%d") if joined else "Unknown"
     text = (
         f"👤 <b>User Profile:</b> {uid}\n"
-        f"<b>Name:</b> {u.get('first_name', '')} {u.get('last_name', '')}\n"
-        f"<b>Username:</b> @{u.get('username', 'N/A')}\n"
+        f"<b>Name:</b> {html.escape(u.get('first_name') or '')} {html.escape(u.get('last_name') or '')}\n"
+        f"<b>Username:</b> @{html.escape(u.get('username') or 'N/A')}\n"
         f"<b>Joined:</b> {joined_str}\n"
         f"<b>Wallet Balance:</b> ₹{wallet:.2f}\n"
         f"<b>Status:</b> {'🚫 BANNED' if banned else '✅ Active'}\n"
@@ -339,7 +340,7 @@ async def cb_admin_sales(call: CallbackQuery):
         "🔥 <b>Top Services:</b>\n"
     )
     for p in pop:
-        text += f"- {p['_id'].upper()} ({p['count']} orders)\n"
+        text += f"- {html.escape(str(p.get('_id', 'unknown'))).upper()} ({p['count']} orders)\n"
         
     await _edit(call.message, text, reply_markup=kb_back("admin"), parse_mode="HTML")
 
@@ -360,7 +361,7 @@ async def cb_admin_orders(call: CallbackQuery):
         
     text = f"📦 <b>All Orders (Page {page + 1})</b>\nTotal: {total}\n\n"
     for o in orders:
-        text += f"• <code>{o.get('order_ref')}</code> | {o.get('service').upper()} | ₹{o.get('price_inr', 0):.2f} | {o.get('status').upper()}\n"
+        text += f"• <code>{html.escape(str(o.get('order_ref', '')))}</code> | {html.escape(str(o.get('service', 'unknown'))).upper()} | ₹{o.get('price_inr', 0):.2f} | {html.escape(str(o.get('status', 'unknown'))).upper()}\n"
         
     has_more = (page + 1) * PAGE_SIZE < total
     await _edit(call.message, text, reply_markup=kb_admin_list_nav("admin_orders", page, has_more), parse_mode="HTML")
@@ -379,7 +380,7 @@ async def cb_admin_failed(call: CallbackQuery):
         
     text = f"❌ <b>Failed Orders (Page {page + 1})</b>\nTotal: {total}\n\n"
     for o in orders:
-        text += f"• <code>{o.get('order_ref')}</code> | {o.get('service').upper()} | ₹{o.get('price_inr', 0):.2f} | {o.get('status').upper()}\n"
+        text += f"• <code>{html.escape(str(o.get('order_ref', '')))}</code> | {html.escape(str(o.get('service', 'unknown'))).upper()} | ₹{o.get('price_inr', 0):.2f} | {html.escape(str(o.get('status', 'unknown'))).upper()}\n"
         
     has_more = (page + 1) * PAGE_SIZE < total
     await _edit(call.message, text, reply_markup=kb_admin_list_nav("admin_failed", page, has_more), parse_mode="HTML")
@@ -400,7 +401,8 @@ async def cb_admin_users(call: CallbackQuery):
     for u in users:
         joined = u.get("joined_at")
         joined_str = joined.strftime("%Y-%m-%d") if joined else "Unknown"
-        text += f"• <code>{u.get('user_id')}</code> | @{u.get('username', 'N/A')} | ₹{u.get('wallet', 0):.2f} | {joined_str}\n"
+        username = html.escape(u.get('username') or 'N/A')
+        text += f"• <code>{u.get('user_id')}</code> | @{username} | ₹{u.get('wallet', 0):.2f} | {joined_str}\n"
         
     has_more = (page + 1) * PAGE_SIZE < total
     await _edit(call.message, text, reply_markup=kb_admin_list_nav("admin_users", page, has_more), parse_mode="HTML")
