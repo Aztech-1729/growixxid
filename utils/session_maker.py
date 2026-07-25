@@ -5,7 +5,7 @@ import sqlite3
 import base64
 import struct
 from pathlib import Path
-from telethon import TelegramClient
+from telethon import TelegramClient, functions, types
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError
 from telethon.sessions import StringSession as TelethonStringSession
 
@@ -33,7 +33,7 @@ def _telethon_to_pyrogram_string(telethon_session_path: str) -> str | None:
         return None
 
 
-def _create_pyrogram_session_file(telethon_session_path: str, output_path: str) -> str | None:
+async def _create_pyrogram_session_file(telethon_session_path: str, output_path: str) -> str | None:
     """Create a Pyrogram-compatible .session file from a Telethon .session file.
     Returns the export session string, or None on failure."""
     try:
@@ -52,20 +52,17 @@ def _create_pyrogram_session_file(telethon_session_path: str, output_path: str) 
         workdir = Path(output_path).parent
         workdir.mkdir(parents=True, exist_ok=True)
 
-        async def _make():
-            fs = FileStorage(name, workdir)
-            await fs.open()
-            await fs.dc_id(dc_id)
-            await fs.auth_key(bytes(auth_key))
-            await fs.test_mode(False)
-            await fs.api_id(int(config.API_ID))
-            await fs.user_id(0)
-            await fs.save()
-            pg_string = await fs.export_session_string()
-            await fs.close()
-            return pg_string
-
-        return asyncio.run(_make())
+        fs = FileStorage(name, workdir)
+        await fs.open()
+        await fs.dc_id(dc_id)
+        await fs.auth_key(bytes(auth_key))
+        await fs.test_mode(False)
+        await fs.api_id(int(config.API_ID))
+        await fs.user_id(0)
+        await fs.save()
+        pg_string = await fs.export_session_string()
+        await fs.close()
+        return pg_string
     except Exception:
         return None
 
@@ -92,6 +89,7 @@ class AutoSessionManager:
         self.session_string = None
         self.pyrogram_string = None
         self.pyrogram_session_path = None
+        self.code_sent_via = None  # "app" or "sms"
 
     async def connect_and_send_code(self) -> str:
         """Connect to TG and request the OTP. Returns the phone_code_hash."""
@@ -99,6 +97,24 @@ class AutoSessionManager:
         try:
             sent_code = await self.client.send_code_request(self.phone_number)
             self.phone_code_hash = sent_code.phone_code_hash
+            
+            # Detect how the code was sent
+            if isinstance(sent_code.type, types.auth.SentCodeTypeApp):
+                self.code_sent_via = "app"
+                # Try to force SMS delivery via ResendCodeRequest
+                try:
+                    await self.client(functions.auth.ResendCodeRequest(
+                        phone_number=self.phone_number,
+                        phone_code_hash=self.phone_code_hash
+                    ))
+                    self.code_sent_via = "sms"
+                except Exception:
+                    pass  # SMS delivery may not be available
+            elif isinstance(sent_code.type, types.auth.SentCodeTypeSms):
+                self.code_sent_via = "sms"
+            else:
+                self.code_sent_via = "sms"
+                
             return self.phone_code_hash
         except Exception as e:
             await self.client.disconnect()
@@ -142,7 +158,7 @@ class AutoSessionManager:
         try:
             pyro_name = f"pyro_{self.session_name}"
             pyro_path = os.path.join(self.session_dir, f"{pyro_name}.session")
-            pg_string = _create_pyrogram_session_file(telethon_path, pyro_path)
+            pg_string = await _create_pyrogram_session_file(telethon_path, pyro_path)
             if pg_string:
                 self.pyrogram_string = pg_string
                 self.pyrogram_session_path = pyro_path

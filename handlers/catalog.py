@@ -337,19 +337,36 @@ async def cb_get_otp(call: CallbackQuery):
                 client = TelegramClient(StringSession(o["session_string"]), int(config.API_ID), config.API_HASH)
                 await client.connect()
                 if await client.is_user_authorized():
-                    msgs = await client.get_messages("me", limit=10)
                     codes = []
-                    for m in msgs:
-                        if m.text:
-                            found = re.findall(r'\b(\d{4,8})\b', m.text)
-                            for c in found:
-                                if c not in codes:
-                                    codes.append(c)
+                    # Check messages from 777000 (Telegram's official OTP sender)
+                    try:
+                        from telethon import types
+                        otp_entity = types.PeerUser(777000)
+                        msgs = await client.get_messages(otp_entity, limit=10)
+                        for m in msgs:
+                            if m.text:
+                                found = re.findall(r'\b(\d{4,8})\b', m.text)
+                                for c in found:
+                                    if c not in codes:
+                                        codes.append(c)
+                    except Exception:
+                        pass
+                    # Also check "me" (Saved Messages) as fallback
+                    try:
+                        msgs = await client.get_messages("me", limit=10)
+                        for m in msgs:
+                            if m.text:
+                                found = re.findall(r'\b(\d{4,8})\b', m.text)
+                                for c in found:
+                                    if c not in codes:
+                                        codes.append(c)
+                    except Exception:
+                        pass
                     await client.disconnect()
                     if codes:
                         await call.bot.answer_callback_query(
                             call.id,
-                            f"✅ Codes found in inbox: {', '.join(codes[:3])}",
+                            f"✅ Codes found: {', '.join(codes[:3])}",
                             show_alert=True
                         )
                         return
