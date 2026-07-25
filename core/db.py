@@ -164,37 +164,89 @@ async def toggle_ban_user(user_id: int) -> bool:
 
 # ---- analytics ----
 async def get_sales_report() -> dict:
-    now = datetime.datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_start = today_start - datetime.timedelta(days=today_start.weekday())
-    month_start = today_start.replace(day=1)
+    from datetime import timezone, timedelta
+    IST = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.datetime.now(IST)
+    today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start_ist = today_start_ist - timedelta(days=today_start_ist.weekday())
+    month_start_ist = today_start_ist.replace(day=1)
+
+    today_start = today_start_ist.astimezone(timezone.utc)
+    week_start = week_start_ist.astimezone(timezone.utc)
+    month_start = month_start_ist.astimezone(timezone.utc)
     
     pipeline = [
-        {"$match": {"status": "completed"}},
         {"$group": {
             "_id": None,
-            "today": {"$sum": {"$cond": [{"$gte": ["$created_at", today_start]}, "$price_inr", 0]}},
-            "week": {"$sum": {"$cond": [{"$gte": ["$created_at", week_start]}, "$price_inr", 0]}},
-            "month": {"$sum": {"$cond": [{"$gte": ["$created_at", month_start]}, "$price_inr", 0]}},
+            "rev_today": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", today_start]}, {"$eq": ["$status", "completed"]}]}, "$price_inr", 0]}},
+            "rev_week": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", week_start]}, {"$eq": ["$status", "completed"]}]}, "$price_inr", 0]}},
+            "rev_month": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", month_start]}, {"$eq": ["$status", "completed"]}]}, "$price_inr", 0]}},
+            "rev_all": {"$sum": {"$cond": [{"$eq": ["$status", "completed"]}, "$price_inr", 0]}},
+            
+            "orders_today_comp": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", today_start]}, {"$eq": ["$status", "completed"]}]}, 1, 0]}},
+            "orders_week_comp": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", week_start]}, {"$eq": ["$status", "completed"]}]}, 1, 0]}},
+            "orders_month_comp": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", month_start]}, {"$eq": ["$status", "completed"]}]}, 1, 0]}},
+            "orders_all_comp": {"$sum": {"$cond": [{"$eq": ["$status", "completed"]}, 1, 0]}},
+            
+            "orders_today_fail": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", today_start]}, {"$in": ["$status", ["failed", "refunded", "cancelled"]]}]}, 1, 0]}},
+            "orders_week_fail": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", week_start]}, {"$in": ["$status", ["failed", "refunded", "cancelled"]]}]}, 1, 0]}},
+            "orders_month_fail": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", month_start]}, {"$in": ["$status", ["failed", "refunded", "cancelled"]]}]}, 1, 0]}},
+            "orders_all_fail": {"$sum": {"$cond": [{"$in": ["$status", ["failed", "refunded", "cancelled"]]}, 1, 0]}},
         }}
     ]
     cursor = orders.aggregate(pipeline)
     result = await cursor.to_list(length=1)
     
-    # most popular services
+    # most popular services (top 5)
     pop_pipeline = [
         {"$match": {"status": "completed"}},
-        {"$group": {"_id": "$service", "count": {"$sum": 1}}},
+        {"$group": {"_id": "$service", "count": {"$sum": 1}, "revenue": {"$sum": "$price_inr"}}},
         {"$sort": {"count": -1}},
-        {"$limit": 3}
+        {"$limit": 5}
     ]
     pop_cursor = orders.aggregate(pop_pipeline)
-    pop_result = await pop_cursor.to_list(length=3)
+    pop_result = await pop_cursor.to_list(length=5)
     
+    if not result:
+        res = {
+            "rev_today": 0, "rev_week": 0, "rev_month": 0, "rev_all": 0,
+            "orders_today_comp": 0, "orders_week_comp": 0, "orders_month_comp": 0, "orders_all_comp": 0,
+            "orders_today_fail": 0, "orders_week_fail": 0, "orders_month_fail": 0, "orders_all_fail": 0,
+        }
+    else:
+        res = result[0]
+        
     return {
-        "revenue": result[0] if result else {"today": 0, "week": 0, "month": 0},
+        "stats": res,
         "popular": pop_result
     }
+
+async def get_user_stats() -> dict:
+    from datetime import timezone, timedelta
+    IST = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.datetime.now(IST)
+    today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start_ist = today_start_ist - timedelta(days=today_start_ist.weekday())
+    month_start_ist = today_start_ist.replace(day=1)
+
+    today_start = today_start_ist.astimezone(timezone.utc)
+    week_start = week_start_ist.astimezone(timezone.utc)
+    month_start = month_start_ist.astimezone(timezone.utc)
+    
+    pipeline = [
+        {"$group": {
+            "_id": None,
+            "users_today": {"$sum": {"$cond": [{"$gte": ["$joined_at", today_start]}, 1, 0]}},
+            "users_week": {"$sum": {"$cond": [{"$gte": ["$joined_at", week_start]}, 1, 0]}},
+            "users_month": {"$sum": {"$cond": [{"$gte": ["$joined_at", month_start]}, 1, 0]}},
+            "users_all": {"$sum": 1},
+        }}
+    ]
+    cursor = users.aggregate(pipeline)
+    result = await cursor.to_list(length=1)
+    if not result:
+        return {"users_today": 0, "users_week": 0, "users_month": 0, "users_all": 0}
+    return result[0]
 
 async def get_recent_failed_orders(limit: int = 5):
     cur = orders.find({"status": {"$in": ["refunded", "failed"]}}).sort("created_at", -1).limit(limit)

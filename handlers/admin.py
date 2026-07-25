@@ -7,7 +7,7 @@ from aiogram.types import CallbackQuery, Message
 from core.config import config
 from core.db import (count_orders, count_users, get_all_users, get_setting, set_setting, 
                      get_user, toggle_ban_user, credit_wallet, deduct_wallet, 
-                     get_sales_report, get_all_orders_paginated, get_all_users_paginated, 
+                     get_sales_report, get_user_stats, get_all_orders_paginated, get_all_users_paginated, 
                      count_failed_orders, get_failed_orders_paginated)
 from ui.keyboards import kb_admin, kb_back, kb_admin_user, kb_admin_suppliers, kb_admin_list_nav
 from services.suppliers import SUPPLIERS, balance as supplier_balance
@@ -329,18 +329,32 @@ async def cb_admin_sales(call: CallbackQuery):
     await call.answer()
     
     report = await get_sales_report()
-    rev = report["revenue"]
+    stats = report["stats"]
     pop = report["popular"]
     
+    user_stats = await get_user_stats()
+    
     text = (
-        "📊 <b>Sales Report</b>\n\n"
-        f"<b>Today:</b> ₹{rev.get('today', 0):.2f}\n"
-        f"<b>This Week:</b> ₹{rev.get('week', 0):.2f}\n"
-        f"<b>This Month:</b> ₹{rev.get('month', 0):.2f}\n\n"
-        "🔥 <b>Top Services:</b>\n"
+        "📊 <b>PRO SALES REPORT (IST)</b>\n\n"
+        "💰 <b>REVENUE</b>\n"
+        f"• Today: ₹{stats.get('rev_today', 0):.2f}\n"
+        f"• This Week: ₹{stats.get('rev_week', 0):.2f}\n"
+        f"• This Month: ₹{stats.get('rev_month', 0):.2f}\n"
+        f"• All-Time: ₹{stats.get('rev_all', 0):.2f}\n\n"
+        "📦 <b>ORDERS (Completed / Failed)</b>\n"
+        f"• Today: {stats.get('orders_today_comp', 0)} / {stats.get('orders_today_fail', 0)}\n"
+        f"• This Week: {stats.get('orders_week_comp', 0)} / {stats.get('orders_week_fail', 0)}\n"
+        f"• This Month: {stats.get('orders_month_comp', 0)} / {stats.get('orders_month_fail', 0)}\n"
+        f"• All-Time: {stats.get('orders_all_comp', 0)} / {stats.get('orders_all_fail', 0)}\n\n"
+        "👥 <b>USERS (New / Total)</b>\n"
+        f"• Today: +{user_stats.get('users_today', 0)}\n"
+        f"• This Week: +{user_stats.get('users_week', 0)}\n"
+        f"• This Month: +{user_stats.get('users_month', 0)}\n"
+        f"• Total Users: {user_stats.get('users_all', 0)}\n\n"
+        "🔥 <b>TOP 5 SERVICES (All-Time)</b>\n"
     )
-    for p in pop:
-        text += f"- {html.escape(str(p.get('_id', 'unknown'))).upper()} ({p['count']} orders)\n"
+    for i, p in enumerate(pop, 1):
+        text += f"{i}. {html.escape(str(p.get('_id', 'unknown'))).upper()} ({p.get('count', 0)} orders, ₹{p.get('revenue', 0):.2f})\n"
         
     await _edit(call.message, text, reply_markup=kb_back("admin"), parse_mode="HTML")
 
