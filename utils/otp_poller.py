@@ -100,15 +100,22 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
         remaining = max(0, config.OTP_TIMEOUT - elapsed)
         remaining_min = remaining // 60
         
-        if elapsed_min != last_elapsed_min and service != "tg":
+        if elapsed_min != last_elapsed_min:
             last_elapsed_min = elapsed_min
             try:
+                msg_text = "⏳ <b>Waiting for OTP…</b>"
+                if service == "tg":
+                    msg_text = "⏳ <b>Waiting for Telegram Session OTP…</b>"
+                    
                 await _edit_msg(
                     bot, chat_id, message_id,
-                    f"⏳ <b>Waiting for OTP…</b>\n\n"
+                    f"{msg_text}\n\n"
                     f"<b>Number:</b> <code>{number}</code>\n"
-                    f"<i>Waiting for {elapsed_min}m {elapsed % 60}s… Auto-expires in ~{remaining_min}m.</i>",
-                    parse_mode="HTML")
+                    f"<i>Waiting for {elapsed_min}m {elapsed % 60}s… Auto-expires in ~{remaining_min}m.</i>\n\n"
+                    f"<i>Note: Sometimes Telegram does not send SMS to virtual numbers. If no SMS arrives, the order will automatically cancel and refund.</i>",
+                    parse_mode="HTML",
+                    reply_markup=kb_back("menu")
+                )
             except Exception:
                 pass
 
