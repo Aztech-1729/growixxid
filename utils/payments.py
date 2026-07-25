@@ -56,3 +56,20 @@ def verify_webhook(body, signature: str) -> bool:
     except Exception as e:
         print("❌ Webhook signature verification failed:", e)
         return False
+
+async def get_balance() -> float:
+    """Fetch Razorpay primary balance (INR)."""
+    import requests
+    import asyncio
+    
+    def fetch():
+        auth = (config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET)
+        resp = requests.get("https://api.razorpay.com/v1/balances", auth=auth)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items", [])
+        if items:
+            return float(items[0].get("balance", 0)) / 100.0
+        return 0.0
+        
+    return await asyncio.to_thread(fetch)

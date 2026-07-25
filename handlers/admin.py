@@ -59,6 +59,14 @@ async def _panel() -> str:
         lines.append(f"Grizzly balance: ₽{g_bal:.2f} (≈ ₹{g_bal * rate_rub:.2f})")
     except Exception as e:
         lines.append(f"Grizzly balance: error ({e})")
+        
+    # Razorpay Balance
+    try:
+        from utils.payments import get_balance as razorpay_balance
+        rzp_bal = await razorpay_balance()
+        lines.append(f"Razorpay balance: ₹{rzp_bal:.2f}")
+    except Exception as e:
+        lines.append(f"Razorpay balance: error ({e})")
 
     users = await count_users()
     orders = await count_orders()
