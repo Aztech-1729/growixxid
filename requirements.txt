@@ -7,4 +7,4 @@ telethon>=1.34
 razorpay>=1.4
 aiohttp>=3.9
 pycountry>=24
-Pyrofork>=2.3
+Kurigram>=2.2.24
