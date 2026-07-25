@@ -179,10 +179,12 @@ async def cb_confirm(call: CallbackQuery):
         rate = await usd_to_inr()
         if service == "tg":
             ci = await vnhotp.tg_country_info(code)
-            inr = float(ci.get("price", 0)) * (1 + margin / 100) * rate
+            final_price_usd = float(ci.get("price", 0)) * (1 + margin / 100)
+            inr = final_price_usd * rate
             name = code
         else:
             gp = await vnhotp.wp_get_price(service, code)
+            final_price_usd = float(gp.get("price", 0)) * (1 + margin / 100)
             inr = float(gp.get("price_inr") or (gp.get("price", 0) * rate)) * (1 + margin / 100)
             name = code
     except VNHOTPError as e:
@@ -233,7 +235,8 @@ async def cb_confirm(call: CallbackQuery):
     await deduct_wallet(call.from_user.id, inr, f"order {service} {code}")
     await add_order(
         user_id=call.from_user.id, service=service, country_code=code,
-        country_name=name, number=number, price=price, order_ref=ref, status="pending")
+        country_name=name, number=number, price=final_price_usd, price_inr=inr, 
+        order_ref=ref, status="pending")
 
     currency = await get_currency_pref(call.from_user.id)
     display_price = f"${price:.2f}" if currency == "USD" else f"₹{inr:.2f}"
@@ -294,9 +297,19 @@ async def cb_myorders(call: CallbackQuery):
 async def cb_cancel(call: CallbackQuery):
     await call.answer()
     _, service, ref = call.data.split(":")
+    
+    from core.db import get_order, credit_wallet
+    o = await get_order(ref)
+    if o and o.get("status") == "cancelled":
+        await call.answer("❌ Order is already cancelled.", show_alert=True)
+        return
+        
     try:
         res = await vnhotp.wp_cancel_order(service, ref)
-        await update_order(ref, status="cancelled", refund=str(res.get("message", "")))
+        if o and float(o.get("price_inr", 0)):
+            await credit_wallet(o["user_id"], float(o["price_inr"]), f"Refund for cancelled order {ref}")
+            
+        await update_order(ref, status="cancelled", refund=str(res.get("message", "")), refunded=True)
         await _edit(call.message,
                     f"✅ Order cancelled & refunded.\n{res.get('message', '')}",
                     reply_markup=kb_back("menu"))

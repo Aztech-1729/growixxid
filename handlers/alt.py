@@ -283,6 +283,13 @@ async def cb_altconfirm(call: CallbackQuery):
 async def cb_altcancel(call: CallbackQuery):
     await call.answer()
     _, sid, ref = call.data.split(":", 2)
+    
+    from core.db import get_order
+    o = await get_order(ref)
+    if o and o.get("status") == "cancelled":
+        await call.answer("❌ Order is already cancelled.", show_alert=True)
+        return
+
     try:
         ok = await cancel(sid, ref)
     except Exception as e:
@@ -373,10 +380,10 @@ async def poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number)
         ok = await cancel(sid, ref)
         if ok:
             o = await get_order(ref)
-            if o and float(o.get("price_inr", 0)):
+            if o and not o.get("refunded") and float(o.get("price_inr", 0)):
                 await credit_wallet(o["user_id"], float(o["price_inr"]),
                                     f"Refund for expired {sid} order")
-                await update_order(ref, status="cancelled", refunded=True)
+                await update_order(ref, status="expired", refunded=True)
     except Exception:
         pass
     await _edit_msg(

@@ -121,13 +121,21 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
 
         await asyncio.sleep(interval)
 
-    await update_order(ref, status="expired")
+    from core.db import get_order, credit_wallet
+    o = await get_order(ref)
+    if o and o.get("status") != "expired" and not o.get("refunded"):
+        if float(o.get("price_inr", 0)):
+            await credit_wallet(o["user_id"], float(o["price_inr"]), f"Refund for expired order {ref}")
+        await update_order(ref, status="expired", refunded=True)
+    else:
+        await update_order(ref, status="expired")
+        
     if session_maker:
         session_maker.cleanup()
     try:
         await _edit_msg(
             bot, chat_id, message_id,
-            "⌛ <b>OTP not received within the time limit.</b>\n\nOrder expired. Please try again.",
+            "⌛ <b>OTP not received within the time limit.</b>\n\nOrder expired and refunded. Please try again.",
             reply_markup=kb_back("menu"), parse_mode="HTML")
     except Exception:
         pass

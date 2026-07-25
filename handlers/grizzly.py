@@ -390,6 +390,13 @@ async def cb_grzconfirm(call: CallbackQuery):
 async def cb_grzcancel(call: CallbackQuery):
     await call.answer()
     _, ref = call.data.split(":", 1)
+    
+    from core.db import get_order
+    o = await get_order(ref)
+    if o and o.get("status") == "cancelled":
+        await call.answer("❌ Order is already cancelled.", show_alert=True)
+        return
+
     try:
         res = await grizzly.set_status(ref, 8)
         ok = res.startswith("ACCESS")
@@ -519,10 +526,10 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
         
     try:
         o = await get_order(ref)
-        if o and float(o.get("price_inr", 0)):
+        if o and not o.get("refunded") and float(o.get("price_inr", 0)):
             await credit_wallet(o["user_id"], float(o["price_inr"]),
                                 "Refund for expired grizzly order")
-            await update_order(ref, status="cancelled", refunded=True)
+            await update_order(ref, status="expired", refunded=True)
     except Exception:
         pass
         
