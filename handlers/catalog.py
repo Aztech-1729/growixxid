@@ -297,17 +297,62 @@ async def cb_myorders(call: CallbackQuery):
 async def cb_cancel(call: CallbackQuery):
     await call.answer()
     _, service, ref = call.data.split(":")
+    chat_id, message_id = call.message.chat.id, call.message.message_id
     
-    from core.db import get_order, credit_wallet
+    from core.db import get_order, credit_wallet, update_order
     o = await get_order(ref)
     if o and o.get("status") == "cancelled":
         await call.answer("❌ Order is already cancelled.", show_alert=True)
         return
         
     try:
-        res = await vnhotp.wp_cancel_order(service, ref)
-        if o and float(o.get("price_inr", 0)):
-            await credit_wallet(o["user_id"], float(o["price_inr"]), f"Refund for cancelled order {ref}")
+        from services.vnhotp import vnhotp
+        await vnhotp.tg_cancel_order(ref)
+    except Exception:
+        pass
+        
+    await _edit(call.message, "❌ Order cancelled by user.")
+    if not o.get("refunded"):
+        await update_order(ref, status="cancelled", refunded=True)
+        price_inr = o.get("price_inr", 0.0)
+        await credit_wallet(call.from_user.id, price_inr, f"Refund for cancelled order {ref}")
+
+
+@router.callback_query(F.data.startswith("getotp:"))
+async def cb_get_otp(call: CallbackQuery):
+    _, provider, ref, number = call.data.split(":")
+    
+    await bot.answer_callback_query(call.id, "🔄 Fetching latest OTP...", show_alert=False)
+    
+    code = None
+    try:
+        if provider == "vnhotp":
+            from services.vnhotp import vnhotp
+            res = await vnhotp.tg_get_code(number)
+            if isinstance(res, dict) and "code" in res:
+                code = res["code"]
+            elif isinstance(res, str):
+                code = res
+        elif provider == "tiger":
+            # For Tiger, query the DB for the sid
+            from core.db import get_order
+            from handlers.alt import get_code
+            o = await get_order(ref)
+            if o and o.get("sid"):
+                code = await get_code(o.get("sid"), ref, "tg")
+        elif provider == "grizzly":
+            from handlers.grizzly import grizzly
+            st = await grizzly.get_status("tg", ref)
+            if st and st.startswith("STATUS_OK:"):
+                code = st.split(":", 1)[1]
+    except Exception:
+        pass
+        
+    if code:
+        await bot.answer_callback_query(call.id, f"✅ Latest OTP: {code}", show_alert=True)
+    else:
+        await bot.answer_callback_query(call.id, "⏳ No new OTP received yet or order expired.", show_alert=True)
+        return
             
         await update_order(ref, status="cancelled", refund=str(res.get("message", "")), refunded=True)
         await _edit(call.message,

@@ -64,13 +64,14 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                         )
                         if session_str:
                             caption += f"<b>Session String:</b>\n<code>{session_str}</code>\n\n"
-                        caption += "👉 <b>Forward this session file to this bot to get the OTP:</b> @TwsOtp_bot"
-                        
+
+                        from ui.keyboards import kb_get_otp
                         await bot.send_document(
                             chat_id=chat_id,
                             document=doc,
                             caption=caption,
-                            parse_mode="HTML"
+                            parse_mode="HTML",
+                            reply_markup=kb_get_otp("vnhotp", ref, number)
                         )
                         await bot.delete_message(chat_id, message_id)
                         await update_order(ref, status="completed", otp=code, password=pwd)

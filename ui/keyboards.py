@@ -221,6 +221,15 @@ def kb_back(callback: str = "menu"):
     return b.as_markup()
 
 
+def kb_get_otp(provider: str, ref: str, number: str = "none"):
+    b = InlineKeyboardBuilder()
+    # callback format: getotp:{provider}:{ref}:{number}
+    # provider can be: vnhotp, tiger, grizzly
+    b.button(text="📨 Get Latest OTP", callback_data=f"getotp:{provider}:{ref}:{number}", style=PRIMARY)
+    b.adjust(1)
+    return b.as_markup()
+
+
 def kb_admin():
     b = InlineKeyboardBuilder()
     b.button(text="🔄 Refresh", callback_data="admin", style=PRIMARY)

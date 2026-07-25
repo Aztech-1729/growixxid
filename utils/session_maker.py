@@ -76,6 +76,20 @@ class AutoSessionManager:
         if not os.path.exists(file_path):
             raise SessionMakerError("Session file was not generated properly.")
             
+        try:
+            import subprocess
+            # Convert Telethon session to universally accepted Pyrogram session format
+            subprocess.run([
+                "tgconvertor", "convert", file_path, 
+                "-f", "telethon", "-t", "pyrogram", 
+                "-o", f"{file_path}.pyro"
+            ], check=True, capture_output=True)
+            # Replace the telethon file with the pyrogram file
+            os.replace(f"{file_path}.pyro", file_path)
+        except Exception:
+            # If conversion fails for any reason, we fall back to the original Telethon file
+            pass
+            
         return file_path
 
     def cleanup(self):
