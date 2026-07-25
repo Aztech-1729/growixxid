@@ -322,7 +322,7 @@ async def cb_cancel(call: CallbackQuery):
 async def cb_get_otp(call: CallbackQuery):
     _, provider, ref, number = call.data.split(":")
     
-    await bot.answer_callback_query(call.id, "🔄 Fetching latest OTP...", show_alert=False)
+    await call.bot.answer_callback_query(call.id, "🔄 Fetching latest OTP...", show_alert=False)
     
     code = None
     try:
@@ -349,9 +349,9 @@ async def cb_get_otp(call: CallbackQuery):
         pass
         
     if code:
-        await bot.answer_callback_query(call.id, f"✅ Latest OTP: {code}", show_alert=True)
+        await call.bot.answer_callback_query(call.id, f"✅ Latest OTP: {code}", show_alert=True)
     else:
-        await bot.answer_callback_query(call.id, "⏳ No new OTP received yet or order expired.", show_alert=True)
+        await call.bot.answer_callback_query(call.id, "⏳ No new OTP received yet or order expired.", show_alert=True)
         return
 
 
