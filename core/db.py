@@ -175,46 +175,57 @@ async def get_sales_report() -> dict:
     week_start = week_start_ist.astimezone(timezone.utc)
     month_start = month_start_ist.astimezone(timezone.utc)
     
-    pipeline = [
-        {"$group": {
-            "_id": None,
-            "rev_today": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", today_start]}, {"$eq": ["$status", "completed"]}]}, "$price_inr", 0]}},
-            "rev_week": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", week_start]}, {"$eq": ["$status", "completed"]}]}, "$price_inr", 0]}},
-            "rev_month": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", month_start]}, {"$eq": ["$status", "completed"]}]}, "$price_inr", 0]}},
-            "rev_all": {"$sum": {"$cond": [{"$eq": ["$status", "completed"]}, "$price_inr", 0]}},
-            
-            "orders_today_comp": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", today_start]}, {"$eq": ["$status", "completed"]}]}, 1, 0]}},
-            "orders_week_comp": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", week_start]}, {"$eq": ["$status", "completed"]}]}, 1, 0]}},
-            "orders_month_comp": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", month_start]}, {"$eq": ["$status", "completed"]}]}, 1, 0]}},
-            "orders_all_comp": {"$sum": {"$cond": [{"$eq": ["$status", "completed"]}, 1, 0]}},
-            
-            "orders_today_fail": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", today_start]}, {"$in": ["$status", ["failed", "refunded", "cancelled"]]}]}, 1, 0]}},
-            "orders_week_fail": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", week_start]}, {"$in": ["$status", ["failed", "refunded", "cancelled"]]}]}, 1, 0]}},
-            "orders_month_fail": {"$sum": {"$cond": [{"$and": [{"$gte": ["$created_at", month_start]}, {"$in": ["$status", ["failed", "refunded", "cancelled"]]}]}, 1, 0]}},
-            "orders_all_fail": {"$sum": {"$cond": [{"$in": ["$status", ["failed", "refunded", "cancelled"]]}, 1, 0]}},
-        }}
-    ]
-    cursor = orders.aggregate(pipeline)
-    result = await cursor.to_list(length=1)
+    res = {
+        "rev_today": 0.0, "rev_week": 0.0, "rev_month": 0.0, "rev_all": 0.0,
+        "orders_today_comp": 0, "orders_week_comp": 0, "orders_month_comp": 0, "orders_all_comp": 0,
+        "orders_today_fail": 0, "orders_week_fail": 0, "orders_month_fail": 0, "orders_all_fail": 0,
+    }
     
-    # most popular services (top 5)
-    pop_pipeline = [
-        {"$match": {"status": "completed"}},
-        {"$group": {"_id": "$service", "count": {"$sum": 1}, "revenue": {"$sum": "$price_inr"}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 5}
-    ]
-    pop_cursor = orders.aggregate(pop_pipeline)
-    pop_result = await pop_cursor.to_list(length=5)
-    
-    if not result:
-        res = {
-            "rev_today": 0, "rev_week": 0, "rev_month": 0, "rev_all": 0,
-            "orders_today_comp": 0, "orders_week_comp": 0, "orders_month_comp": 0, "orders_all_comp": 0,
-            "orders_today_fail": 0, "orders_week_fail": 0, "orders_month_fail": 0, "orders_all_fail": 0,
-        }
-    else:
-        res = result[0]
+    from collections import defaultdict
+    service_stats = defaultdict(lambda: {"count": 0, "revenue": 0.0})
+
+    async for o in orders.find({}):
+        status = o.get("status", "unknown")
+        # Ensure created_at is timezone-aware in UTC before comparing
+        created_at = o.get("created_at")
+        if created_at and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+            
+        is_today = created_at >= today_start if created_at else False
+        is_week = created_at >= week_start if created_at else False
+        is_month = created_at >= month_start if created_at else False
+        
+        if status == "completed":
+            res["orders_all_comp"] += 1
+            if is_today: res["orders_today_comp"] += 1
+            if is_week: res["orders_week_comp"] += 1
+            if is_month: res["orders_month_comp"] += 1
+            
+            price_inr = o.get("price_inr")
+            if price_inr is not None:
+                rev = float(price_inr)
+            else:
+                price = o.get("price")
+                rev = float(price) * 83.0 if price is not None else 0.0
+                
+            res["rev_all"] += rev
+            if is_today: res["rev_today"] += rev
+            if is_week: res["rev_week"] += rev
+            if is_month: res["rev_month"] += rev
+            
+            svc = o.get("service", "unknown")
+            service_stats[svc]["count"] += 1
+            service_stats[svc]["revenue"] += rev
+            
+        elif status in ["failed", "refunded", "cancelled"]:
+            res["orders_all_fail"] += 1
+            if is_today: res["orders_today_fail"] += 1
+            if is_week: res["orders_week_fail"] += 1
+            if is_month: res["orders_month_fail"] += 1
+
+    pop_result = []
+    for svc, stats in sorted(service_stats.items(), key=lambda x: x[1]["count"], reverse=True)[:5]:
+        pop_result.append({"_id": svc, "count": stats["count"], "revenue": stats["revenue"]})
         
     return {
         "stats": res,
