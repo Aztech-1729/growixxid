@@ -137,11 +137,15 @@ async def ask_tg_quantity(call: CallbackQuery, state: FSMContext, ctx: dict) -> 
     )
     try:
         await call.message.edit_text(text, parse_mode="HTML", reply_markup=_qty_kb())
-    except Exception:
+    except Exception as e:
         # If the old message can't be edited, send a fresh prompt instead of
         # silently doing nothing (which looked like a dead button).
         try:
-            await call.message.answer(text, parse_mode="HTML", reply_markup=_qty_kb())
+            new_msg = await call.message.answer(text, parse_mode="HTML", reply_markup=_qty_kb())
+            # Point future edits at the NEW message so quantity taps work.
+            ctx["chat_id"] = new_msg.chat.id
+            ctx["msg_id"] = new_msg.message_id
+            await state.set_data(ctx)
         except Exception:
             import logging
             logging.exception("ask_tg_quantity: could not show quantity prompt")
@@ -197,8 +201,13 @@ async def _goto_confirm(src, state: FSMContext, qty: int):
         await bot.edit_message_text(
             text, chat_id=ctx["chat_id"], message_id=ctx["msg_id"],
             parse_mode="HTML", reply_markup=_confirm_kb(qty, total_str))
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.exception("_goto_confirm: edit failed (qty=%s): %s", qty, e)
+        try:
+            await send_msg(src, text, parse_mode="HTML", reply_markup=_confirm_kb(qty, total_str))
+        except Exception:
+            logging.exception("_goto_confirm: fallback send also failed")
 
 
 @router.callback_query(F.data == "bulkbuy:confirm")
