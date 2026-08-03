@@ -1,9 +1,13 @@
 """Utility to automatically create Telegram .session files."""
 import os
+import io
+import time
+import zipfile
 import asyncio
 import sqlite3
 import base64
 import struct
+import json
 from pathlib import Path
 from telethon import TelegramClient, functions, types
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError
@@ -90,6 +94,7 @@ class AutoSessionManager:
         self.pyrogram_string = None
         self.pyrogram_session_path = None
         self.code_sent_via = None  # "app" or "sms"
+        self.user_info = {}  # id / first_name / last_name after sign-in
 
     async def connect_and_send_code(self) -> str:
         """Connect to TG and request the OTP. Returns the phone_code_hash."""
@@ -147,7 +152,21 @@ class AutoSessionManager:
 
         # Export session string (Telethon format)
         self.session_string = TelethonStringSession.save(self.client.session)
-        
+
+        # Capture account info while still authorized
+        try:
+            me = await self.client.get_me()
+            self.user_info = {
+                "id": getattr(me, "id", None),
+                "first_name": getattr(me, "first_name", "") or "",
+                "last_name": getattr(me, "last_name", "") or "",
+                "lang_code": getattr(me, "lang_code", "en") or "en",
+                "premium": bool(getattr(me, "premium", False)),
+                "username": getattr(me, "username", None),
+            }
+        except Exception:
+            pass
+
         await self.client.disconnect()
         
         telethon_path = f"{self.session_path}.session"
@@ -167,9 +186,91 @@ class AutoSessionManager:
             
         return telethon_path
 
+    def build_package(self, password: str = None) -> str:
+        """Build a reference-style delivery zip: <phone>.session + <phone>.json.
+        Returns the path to the zip file."""
+        telethon_path = f"{self.session_path}.session"
+        if not os.path.exists(telethon_path):
+            raise SessionMakerError("Session file not found; cannot build package.")
+
+        phone = self.phone_number
+        now = int(time.time())
+
+        # Read dc_id + auth_key for mtp_data (same payload as pyrogram string)
+        dc_id = 2
+        auth_key = b""
+        try:
+            conn = sqlite3.connect(telethon_path)
+            cur = conn.cursor()
+            row = cur.execute("SELECT dc_id, auth_key FROM sessions LIMIT 1").fetchone()
+            conn.close()
+            if row:
+                dc_id, auth_key = row[0], bytes(row[1])
+        except Exception:
+            pass
+
+        mtp_payload = struct.pack("B", dc_id) + auth_key + struct.pack("B", 0)
+        mtp_data = base64.urlsafe_b64encode(mtp_payload).decode()
+
+        meta = {
+            "session_file": phone,
+            "phone": phone,
+            "register_time": now,
+            "app_id": int(config.API_ID),
+            "api_id": int(config.API_ID),
+            "app_hash": config.API_HASH,
+            "api_hash": config.API_HASH,
+            "system_version": "SDK 30",
+            "sdk": "SDK 30",
+            "app_version": "12.8.3 (69229)",
+            "device_model": "Desktop",
+            "device": "Desktop",
+            "last_check_time": now,
+            "first_name": self.user_info.get("first_name", ""),
+            "last_name": self.user_info.get("last_name", ""),
+            "sex": "",
+            "lang_code": self.user_info.get("lang_code", "en"),
+            "lang_pack": "android",
+            "system_lang_code": "en",
+            "system_lang_pack": "en",
+            "two_fa": password or "",
+            "twoFA": password or "",
+            "device_token": "",
+            "push_auth_key": "",
+            "installer": "com.google.android.packageinstaller",
+            "package_id": "org.telegram.messenger.web",
+            "tz_offset": 0,
+            "perf_cat": 1,
+            "new_reg": False,
+            "id": self.user_info.get("id"),
+            "trust": False,
+            "premium": self.user_info.get("premium", False),
+            "mtp_data": mtp_data,
+            "ab_group": "a",
+            "session_string": self.session_string or "",
+            "pyrogram_string": self.pyrogram_string or "",
+        }
+
+        json_name = f"{phone}.json"
+        session_name = f"{phone}.session"
+        zip_path = os.path.join(self.session_dir, f"{phone}.zip")
+
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(json_name, json.dumps(meta, indent=2, ensure_ascii=False))
+            zf.write(telethon_path, session_name)
+            if self.pyrogram_session_path and os.path.exists(self.pyrogram_session_path):
+                zf.write(self.pyrogram_session_path, f"pyro_{phone}.session")
+
+        return zip_path
+
     def cleanup(self):
         """Remove the generated session files."""
-        for path in [f"{self.session_path}.session", self.pyrogram_session_path] if hasattr(self, 'pyrogram_session_path') else [f"{self.session_path}.session"]:
+        paths = [f"{self.session_path}.session"]
+        if hasattr(self, "pyrogram_session_path") and self.pyrogram_session_path:
+            paths.append(self.pyrogram_session_path)
+        if hasattr(self, "zip_path") and self.zip_path:
+            paths.append(self.zip_path)
+        for path in paths:
             if path and os.path.exists(path):
                 try:
                     os.remove(path)

@@ -244,7 +244,10 @@ async def cb_confirm(call: CallbackQuery):
     
     kb = kb_order_wp(service, ref) if service != "tg" else None
     
-    await call.message.delete()
+    try:
+        await call.message.delete()
+    except Exception:
+        pass  # delete is cosmetic; never block the purchase flow
     if service == "tg":
         text = (
             f"⏳ <b>Number acquired! Waiting for Telegram OTP…</b>\n\n<b>Service:</b> {service.upper()}\n"

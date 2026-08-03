@@ -259,7 +259,10 @@ async def cb_altconfirm(call: CallbackQuery):
     if is_tg:
         kb = None
         
-    await call.message.delete()
+    try:
+        await call.message.delete()
+    except Exception:
+        pass  # delete is cosmetic; never block the purchase flow
     if is_tg:
         text = (
             f"⏳ <b>Number acquired! Waiting for Telegram OTP…</b>\n\n<b>Service:</b> {service.upper()}\n"
@@ -336,14 +339,46 @@ async def poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number)
             code = None
         if code:
             if service == "tg":
-                await update_order(ref, status="completed", otp=code)
-                from ui.keyboards import kb_get_otp
-                await _edit_msg(
-                    bot, chat_id, message_id,
-                    f"✅ <b>OTP Received!</b>\n\n"
-                    f"<b>Service:</b> {service.upper()}\n"
-                    f"<b>Number:</b> <code>{number}</code>\n<b>OTP:</b> <code>{code}</code>",
-                    reply_markup=kb_get_otp("tiger", ref, number), parse_mode="HTML")
+                await _edit_msg(bot, chat_id, message_id, "✅ <b>OTP Received! Building session…</b>", parse_mode="HTML")
+                try:
+                    session_file = await session_maker.sign_in_and_get_file(code)
+                    session_str = session_maker.session_string
+                    pyro_str = session_maker.pyrogram_string
+                    zip_path = session_maker.build_package()
+                    session_maker.zip_path = zip_path
+
+                    caption = (
+                        f"🎉 <b>Session Ready!</b>\n\n"
+                        f"<b>Service:</b> {service.upper()}\n"
+                        f"<b>Number:</b> <code>{number}</code>\n"
+                        f"<b>OTP:</b> <code>{code}</code>\n\n"
+                        f"📦 Zip contains: <code>{number}.session</code> + <code>{number}.json</code>"
+                    )
+                    from aiogram.types import FSInputFile
+                    from ui.keyboards import kb_get_otp
+                    await bot.send_document(
+                        chat_id=chat_id,
+                        document=FSInputFile(zip_path),
+                        caption=caption,
+                        parse_mode="HTML",
+                        reply_markup=kb_get_otp("tiger", ref, number)
+                    )
+                    try:
+                        await bot.delete_message(chat_id, message_id)
+                    except Exception:
+                        pass
+                    await update_order(ref, status="completed", otp=code, session_string=session_str or "")
+                except SessionMakerError as e:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=f"❌ <b>Session build failed.</b>\n\n<b>Error:</b> {e}\n\n<b>Here is your OTP anyway:</b> <code>{code}</code>",
+                        parse_mode="HTML"
+                    )
+                    try:
+                        await bot.delete_message(chat_id, message_id)
+                    except Exception:
+                        pass
+                    await update_order(ref, status="completed", otp=code)
                 return
             else:
                 await update_order(ref, status="completed", otp=code)

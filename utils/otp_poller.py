@@ -51,16 +51,48 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                 code = d.get("code")
                 pwd = d.get("password")
                 if code:
-                    await update_order(ref, status="completed", otp=code, password=pwd)
-                    text = (
-                        f"✅ <b>OTP Received!</b>\n\n"
-                        f"<b>Number:</b> <code>{number}</code>\n"
-                        f"<b>OTP:</b> <code>{code}</code>"
-                    )
-                    if pwd:
-                        text += f"\n\n🔐 <b>2FA Password:</b> <code>{pwd}</code>"
-                    from ui.keyboards import kb_get_otp
-                    await _edit_msg(bot, chat_id, message_id, text, reply_markup=kb_get_otp("vnhotp", ref, number), parse_mode="HTML")
+                    await _edit_msg(bot, chat_id, message_id, "✅ <b>OTP Received! Building session…</b>", parse_mode="HTML")
+                    try:
+                        session_file = await session_maker.sign_in_and_get_file(code, password=pwd)
+                        session_str = session_maker.session_string
+                        pyro_str = session_maker.pyrogram_string
+                        zip_path = session_maker.build_package(password=pwd)
+                        session_maker.zip_path = zip_path
+
+                        caption = (
+                            f"🎉 <b>Session Ready!</b>\n\n"
+                            f"<b>Number:</b> <code>{number}</code>\n"
+                            f"<b>OTP:</b> <code>{code}</code>"
+                        )
+                        if pwd:
+                            caption += f"\n🔐 <b>2FA Password:</b> <code>{pwd}</code>"
+                        caption += f"\n\n📦 Zip contains: <code>{number}.session</code> + <code>{number}.json</code>"
+
+                        from aiogram.types import FSInputFile
+                        from ui.keyboards import kb_get_otp
+                        await bot.send_document(
+                            chat_id=chat_id,
+                            document=FSInputFile(zip_path),
+                            caption=caption,
+                            parse_mode="HTML",
+                            reply_markup=kb_get_otp("vnhotp", ref, number)
+                        )
+                        try:
+                            await bot.delete_message(chat_id, message_id)
+                        except Exception:
+                            pass
+                        await update_order(ref, status="completed", otp=code, password=pwd, session_string=session_str or "")
+                    except SessionMakerError as e:
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=f"❌ <b>Session build failed.</b>\n\n<b>Error:</b> {e}\n\n<b>Here is your OTP anyway:</b> <code>{code}</code>" + (f"\n🔐 <b>2FA:</b> <code>{pwd}</code>" if pwd else ""),
+                            parse_mode="HTML"
+                        )
+                        try:
+                            await bot.delete_message(chat_id, message_id)
+                        except Exception:
+                            pass
+                        await update_order(ref, status="completed", otp=code, password=pwd)
                     return
             else:
                 code = await vnhotp.wp_get_status(service, ref)
