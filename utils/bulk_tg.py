@@ -1,8 +1,10 @@
 """Bulk Telegram session purchase.
 
-On TG confirm the bot asks how many sessions the buyer wants, then places that
-many orders, starts one OTP poller per number (parallel auto-login) and each
-poller delivers its own session zip as soon as it is ready.
+Flow for TG accounts:
+  1. Buyer picks a country -> bot asks "how many sessions?" (1-20, quick picks)
+  2. Buyer picks a number -> bot shows a confirm card with TOTAL price + Buy button
+  3. Buyer taps Buy -> N orders placed simultaneously, N pollers run in parallel,
+     each auto-login builds a session zip and delivers it.
 """
 import asyncio
 import logging
@@ -36,8 +38,19 @@ def _qty_kb():
     return b.as_markup()
 
 
+def _confirm_kb(qty: int, total_str: str):
+    b = InlineKeyboardBuilder()
+    b.button(text=f"✅ Buy {qty} sessions ({total_str})", callback_data="bulkbuy:confirm",
+             style=ButtonStyle.SUCCESS)
+    b.button(text="❌ Cancel", callback_data="bulkqty:cancel", style=ButtonStyle.DANGER)
+    b.adjust(1)
+    return b.as_markup()
+
+
 async def ask_tg_quantity(call: CallbackQuery, state: FSMContext, ctx: dict) -> None:
-    """Prompt the buyer for how many TG sessions they want."""
+    """Step 1: prompt the buyer for how many TG sessions they want."""
+    ctx["chat_id"] = call.message.chat.id
+    ctx["msg_id"] = call.message.message_id
     await state.set_state(BulkState.waiting_for_qty)
     await state.set_data(ctx)
     try:
@@ -76,6 +89,41 @@ def _parse_qty(text):
     return q
 
 
+def _fmt_total(ctx: dict, qty: int) -> str:
+    inr = float(ctx.get("inr", 0))
+    total = inr * qty
+    if "$" in ctx.get("display_price", ""):
+        return f"${total:.2f}"
+    return f"₹{total:.2f}"
+
+
+async def _goto_confirm(src, state: FSMContext, qty: int):
+    """Step 2: show confirm card with TOTAL price + Buy button."""
+    ctx = await state.get_data()
+    ctx["qty"] = qty
+    await state.set_data(ctx)
+    total_str = _fmt_total(ctx, qty)
+    text = (
+        f"🧾 <b>Confirm Bulk Order</b>\n\n"
+        f"{ctx.get('service_name', 'Telegram')} · {ctx.get('country_name', '')}\n"
+        f"Price: {ctx.get('display_price', '')} × {qty}\n"
+        f"<b>Total: {total_str}</b>"
+    )
+    try:
+        bot = src.bot
+        await bot.edit_message_text(
+            text, chat_id=ctx["chat_id"], message_id=ctx["msg_id"],
+            parse_mode="HTML", reply_markup=_confirm_kb(qty, total_str))
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "bulkbuy:confirm")
+async def cb_bulk_confirm(call: CallbackQuery, state: FSMContext):
+    await call.answer("🛒 Purchasing...")
+    await _run_bulk(call, state)
+
+
 @router.callback_query(F.data.startswith("bulkqty:"))
 async def cb_bulk_qty(call: CallbackQuery, state: FSMContext):
     await call.answer()
@@ -94,7 +142,7 @@ async def cb_bulk_qty(call: CallbackQuery, state: FSMContext):
         qty = int(choice)
     except ValueError:
         return
-    await _run_bulk(call, state, qty)
+    await _goto_confirm(call, state, qty)
 
 
 @router.message(BulkState.waiting_for_qty)
@@ -103,12 +151,16 @@ async def msg_bulk_qty(message: Message, state: FSMContext):
     if qty is None:
         await message.answer(f"❌ Send a valid number between 1 and {MAX_QTY}.")
         return
-    await _run_bulk(message, state, qty)
+    await _goto_confirm(message, state, qty)
 
 
-async def _run_bulk(src, state: FSMContext, qty: int):
+async def _run_bulk(src, state: FSMContext):
     ctx = await state.get_data()
+    qty = ctx.get("qty")
     await state.clear()
+    if not qty:
+        await send_msg(src, "❌ Session expired. Please start again.")
+        return
     fn = _EXECUTORS.get(ctx.get("supplier"))
     if not fn:
         await send_msg(src, "❌ Session expired. Please start again.")

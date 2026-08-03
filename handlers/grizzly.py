@@ -251,7 +251,7 @@ def _offering_kb(service_code, service_name, items, page, currency="INR", rate=8
 
 # ---- confirm ----
 @router.callback_query(F.data.startswith("grzbuy:"))
-async def cb_grzbuy(call: CallbackQuery):
+async def cb_grzbuy(call: CallbackQuery, state: FSMContext):
     await call.answer()
     _, service_code, country_id = call.data.split(":", 2)
     
@@ -270,6 +270,20 @@ async def cb_grzbuy(call: CallbackQuery):
     inr = o['price_usd'] * rate
     display_price = f"${o['price_usd']:.2f}" if currency == "USD" else f"₹{inr:.2f}"
     
+    # TG: ask session quantity first, then show Buy with total price
+    if service_code == "tg":
+        await ask_tg_quantity(call, state, {
+            "supplier": "grizzly",
+            "service_code": service_code,
+            "country_id": country_id,
+            "service_name": service_name,
+            "country_name": o['label'],
+            "price_usd": o['price_usd'],
+            "inr": inr,
+            "display_price": display_price,
+        })
+        return
+
     b = InlineKeyboardBuilder()
     b.button(text=f"✅ Buy ({display_price})",
              callback_data=f"grzconfirm:{service_code}:{country_id}",

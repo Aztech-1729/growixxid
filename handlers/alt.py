@@ -172,7 +172,7 @@ async def cb_altpg(call: CallbackQuery):
 
 # ---- confirm ----
 @router.callback_query(F.data.startswith("altbuy:"))
-async def cb_altbuy(call: CallbackQuery):
+async def cb_altbuy(call: CallbackQuery, state: FSMContext):
     await call.answer()
     _, sid, service, item_id = call.data.split(":", 3)
     o = await _resolve_offering(call.from_user.id, sid, service, item_id)
@@ -184,7 +184,21 @@ async def cb_altbuy(call: CallbackQuery):
     rate = await usd_to_inr()
     inr = o.price_usd * rate
     display_price = f"${o.price_usd:.2f}" if currency == "USD" else f"₹{inr:.2f}"
-    
+
+    # TG: ask session quantity first, then show Buy with total price
+    if service == "tg":
+        await ask_tg_quantity(call, state, {
+            "supplier": "alt",
+            "sid": sid,
+            "service": service,
+            "item_id": item_id,
+            "country_name": o.label,
+            "price_usd": o.price_usd,
+            "inr": inr,
+            "display_price": display_price,
+        })
+        return
+
     b = InlineKeyboardBuilder()
     b.button(text=f"✅ Buy ({display_price})",
              callback_data=f"altconfirm:{sid}:{service}:{item_id}",

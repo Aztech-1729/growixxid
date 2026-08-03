@@ -127,7 +127,7 @@ async def cb_ctry(call: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("buy:"))
-async def cb_buy(call: CallbackQuery):
+async def cb_buy(call: CallbackQuery, state: FSMContext):
     await call.answer()
     _, service, code = call.data.split(":")
     countries = CACHE.get(call.from_user.id, {}).get(service, [])
@@ -165,6 +165,19 @@ async def cb_buy(call: CallbackQuery):
     stock_line = f"<b>Stock:</b> {stock}\n" if stock is not None else ""
     display_price = f"${float(price):.2f}" if currency == "USD" else f"₹{inr:.2f}"
     
+    # TG: ask session quantity first, then show Buy with total price
+    if service == "tg":
+        await ask_tg_quantity(call, state, {
+            "supplier": "vnhotp",
+            "service": service,
+            "code": code,
+            "country_name": info['name'],
+            "price_usd": float(price),
+            "inr": inr,
+            "display_price": display_price,
+        })
+        return
+
     await _edit(call.message,
                 f"🧾 <b>Confirm Order</b>\n\n<b>Service:</b> {service.upper()}\n"
                 f"<b>Country:</b> {info['name']}\n{stock_line}<b>Price:</b> {display_price}",
