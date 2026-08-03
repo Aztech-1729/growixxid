@@ -9,6 +9,7 @@ import html
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -17,6 +18,7 @@ from core.db import (add_order, get_order, get_wallet, deduct_wallet,
                 credit_wallet, update_order, get_currency_pref)
 from ui.keyboards import kb_back
 from utils.rates import usd_to_inr
+from utils.bulk_tg import ask_tg_quantity, register_executor, src_info, send_msg
 from services.suppliers import SUPPLIERS, get_offerings, buy, get_code, cancel
 from utils.session_maker import AutoSessionManager, SessionMakerError
 
@@ -197,7 +199,7 @@ async def cb_altbuy(call: CallbackQuery):
 
 # ---- place order ----
 @router.callback_query(F.data.startswith("altconfirm:"))
-async def cb_altconfirm(call: CallbackQuery):
+async def cb_altconfirm(call: CallbackQuery, state: FSMContext):
     await call.answer()
     _, sid, service, item_id = call.data.split(":", 3)
     o = await _resolve_offering(call.from_user.id, sid, service, item_id)
@@ -209,6 +211,21 @@ async def cb_altconfirm(call: CallbackQuery):
     rate = await usd_to_inr()
     inr = o.price_usd * rate
     display_price = f"${o.price_usd:.2f}" if currency == "USD" else f"₹{inr:.2f}"
+
+    # Bulk TG purchase: ask quantity first, then buy N sessions in parallel
+    if service == "tg":
+        await ask_tg_quantity(call, state, {
+            "supplier": "alt",
+            "sid": sid,
+            "service": service,
+            "item_id": item_id,
+            "country_name": o.label,
+            "price_usd": o.price_usd,
+            "inr": inr,
+            "display_price": display_price,
+        })
+        return
+
     wallet = await get_wallet(call.from_user.id)
     if wallet < inr:
         b = InlineKeyboardBuilder()
@@ -420,3 +437,51 @@ async def _resolve_offering(user_id, sid, service, item_id):
         except Exception:
             o = None
     return o
+
+
+# ---- bulk TG purchase executor (alt) ----
+async def _exec_alt_bulk(src, ctx, qty):
+    bot, user_id, chat_id = src_info(src)
+    sid = ctx["sid"]
+    service = ctx["service"]
+    item_id = ctx["item_id"]
+    label = ctx.get("country_name", service)
+    inr = ctx["inr"]
+    total = inr * qty
+    wallet = await get_wallet(user_id)
+    if wallet < total:
+        await send_msg(src,
+                       f"💡 <b>Total for {qty} sessions:</b> ₹{total:.2f}\nYour wallet: ₹{wallet:.2f}\n\nPlease add funds to continue.",
+                       parse_mode="HTML")
+        return
+    await send_msg(src, f"🛒 <b>Purchasing {qty} Telegram sessions…</b>", parse_mode="HTML")
+    placed = []
+    failed = 0
+    for _ in range(qty):
+        try:
+            res = await buy(sid, service, item_id)
+            placed.append((res["ref"], res["number"], float(res["cost_usd"])))
+        except Exception:
+            failed += 1
+    if not placed:
+        await send_msg(src, "❌ No numbers available right now. Please try again later.")
+        return
+    actual_inr = inr * len(placed)
+    await deduct_wallet(user_id, actual_inr, f"bulk alt tg {len(placed)}x")
+    for ref, number, cost in placed:
+        await add_order(user_id=user_id, service=f"{sid}:{service}",
+                        country_code=item_id, country_name=label, number=number,
+                        price=cost, price_inr=inr, order_ref=ref,
+                        supplier=sid, status="pending")
+    await send_msg(src, f"✅ <b>{len(placed)} numbers purchased!</b>\nBuilding sessions in parallel…", parse_mode="HTML")
+    for i, (ref, number, cost) in enumerate(placed, 1):
+        status_msg = await bot.send_message(
+            chat_id, f"⏳ Session {i}/{len(placed)}: <code>+{number}</code> — waiting for OTP…",
+            parse_mode="HTML")
+        asyncio.create_task(_safe_poll_alt(bot, user_id, chat_id, status_msg.message_id,
+                                           sid, service, ref, number))
+    if failed:
+        await send_msg(src, f"⚠️ {failed} order(s) failed (out of stock). Charged for {len(placed)} only.")
+
+
+register_executor("alt", _exec_alt_bulk)

@@ -14,3 +14,6 @@ class AdminState(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_balance_change = State()
     waiting_for_margin = State()
+
+class BulkState(StatesGroup):
+    waiting_for_qty = State()

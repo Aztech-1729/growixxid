@@ -6,6 +6,7 @@ import time
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -14,6 +15,7 @@ from core.db import (add_order, get_order, get_wallet, deduct_wallet,
                 credit_wallet, update_order, get_currency_pref, get_setting)
 from ui.keyboards import kb_back
 from utils.rates import usd_to_inr
+from utils.bulk_tg import ask_tg_quantity, register_executor, src_info, send_msg
 from services.grizzly_api import grizzly, GrizzlySMSError
 from utils.flags import flag_from_name
 from utils.session_maker import AutoSessionManager, SessionMakerError
@@ -282,7 +284,7 @@ async def cb_grzbuy(call: CallbackQuery):
 
 # ---- place order ----
 @router.callback_query(F.data.startswith("grzconfirm:"))
-async def cb_grzconfirm(call: CallbackQuery):
+async def cb_grzconfirm(call: CallbackQuery, state: FSMContext):
     await call.answer()
     _, service_code, country_id = call.data.split(":", 2)
     
@@ -301,6 +303,20 @@ async def cb_grzconfirm(call: CallbackQuery):
     inr = o['price_usd'] * rate
     display_price = f"${o['price_usd']:.2f}" if currency == "USD" else f"₹{inr:.2f}"
     
+    # Bulk TG purchase: ask quantity first, then buy N sessions in parallel
+    if service_code == "tg":
+        await ask_tg_quantity(call, state, {
+            "supplier": "grizzly",
+            "service_code": service_code,
+            "country_id": country_id,
+            "service_name": service_name,
+            "country_name": o['label'],
+            "price_usd": o['price_usd'],
+            "inr": inr,
+            "display_price": display_price,
+        })
+        return
+
     wallet = await get_wallet(call.from_user.id)
     if wallet < inr:
         b = InlineKeyboardBuilder()
@@ -554,3 +570,51 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
         bot, chat_id, message_id,
         "⌛ <b>OTP not received!</b>\n\nThe provider's wait time has expired. The order has been automatically cancelled and your wallet has been fully refunded.",
         reply_markup=None if service_code == "tg" else kb_back("menu"), parse_mode="HTML")
+
+
+# ---- bulk TG purchase executor (grizzly) ----
+async def _exec_grizzly_bulk(src, ctx, qty):
+    bot, user_id, chat_id = src_info(src)
+    service_code = ctx["service_code"]
+    country_id = ctx["country_id"]
+    service_name = ctx["service_name"]
+    label = ctx.get("country_name", service_code)
+    inr = ctx["inr"]
+    total = inr * qty
+    wallet = await get_wallet(user_id)
+    if wallet < total:
+        await send_msg(src,
+                       f"💡 <b>Total for {qty} sessions:</b> ₹{total:.2f}\nYour wallet: ₹{wallet:.2f}\n\nPlease add funds to continue.",
+                       parse_mode="HTML")
+        return
+    await send_msg(src, f"🛒 <b>Purchasing {qty} Telegram sessions…</b>", parse_mode="HTML")
+    placed = []
+    failed = 0
+    for _ in range(qty):
+        try:
+            aid, number = await grizzly.get_number(service_code, country_id)
+            placed.append((aid, number))
+        except Exception:
+            failed += 1
+    if not placed:
+        await send_msg(src, "❌ No numbers available right now. Please try again later.")
+        return
+    actual_inr = inr * len(placed)
+    await deduct_wallet(user_id, actual_inr, f"bulk grizzly tg {len(placed)}x")
+    for aid, number in placed:
+        await add_order(user_id=user_id, service=f"grz:{service_code}",
+                        country_code=country_id, country_name=label, number=number,
+                        price=ctx["price_usd"], price_inr=inr, order_ref=aid,
+                        supplier="grizzly", status="pending")
+    await send_msg(src, f"✅ <b>{len(placed)} numbers purchased!</b>\nBuilding sessions in parallel…", parse_mode="HTML")
+    for i, (aid, number) in enumerate(placed, 1):
+        status_msg = await bot.send_message(
+            chat_id, f"⏳ Session {i}/{len(placed)}: <code>+{number}</code> — waiting for OTP…",
+            parse_mode="HTML")
+        asyncio.create_task(_safe_poll_grz(bot, user_id, chat_id, status_msg.message_id,
+                                           service_code, service_name, aid, number))
+    if failed:
+        await send_msg(src, f"⚠️ {failed} order(s) failed (out of stock). Charged for {len(placed)} only.")
+
+
+register_executor("grizzly", _exec_grizzly_bulk)

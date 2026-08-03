@@ -6,6 +6,7 @@ import re
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -14,6 +15,7 @@ from core.db import (add_order, get_user_orders, update_order, get_wallet, deduc
 from ui.keyboards import kb_back, kb_confirm, kb_countries, kb_order_wp, kb_service, kb_myorders
 from utils.otp_poller import poll_and_update
 from utils.rates import usd_to_inr
+from utils.bulk_tg import ask_tg_quantity, register_executor, src_info, send_msg
 from services.vnhotp import VNHOTPError, vnhotp
 
 router = Router()
@@ -171,7 +173,7 @@ async def cb_buy(call: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("confirm:"))
-async def cb_confirm(call: CallbackQuery):
+async def cb_confirm(call: CallbackQuery, state: FSMContext):
     await call.answer()
     _, service, code = call.data.split(":")
 
@@ -190,6 +192,21 @@ async def cb_confirm(call: CallbackQuery):
             name = code
     except VNHOTPError as e:
         await _edit(call.message, f"❌ {e}", reply_markup=kb_back("catalog"))
+        return
+
+    # Bulk TG purchase: ask quantity first, then buy N sessions in parallel
+    if service == "tg":
+        currency = await get_currency_pref(call.from_user.id)
+        display_price = f"${final_price_usd:.2f}" if currency == "USD" else f"₹{inr:.2f}"
+        await ask_tg_quantity(call, state, {
+            "supplier": "vnhotp",
+            "service": service,
+            "code": code,
+            "country_name": name,
+            "price_usd": final_price_usd,
+            "inr": inr,
+            "display_price": display_price,
+        })
         return
 
     wallet = await get_wallet(call.from_user.id)
@@ -398,3 +415,49 @@ async def _safe_poll(bot, user_id, chat_id, message_id, service, ref, number):
     except Exception:
         import logging
         logging.exception("OTP poller failed for %s", ref)
+
+
+# ---- bulk TG purchase executor (vnhotp) ----
+async def _exec_vnhotp_bulk(src, ctx, qty):
+    bot, user_id, chat_id = src_info(src)
+    code = ctx["code"]
+    name = ctx.get("country_name", code)
+    inr = ctx["inr"]
+    total = inr * qty
+    wallet = await get_wallet(user_id)
+    if wallet < total:
+        await send_msg(src,
+                       f"💡 <b>Total for {qty} sessions:</b> ₹{total:.2f}\nYour wallet: ₹{wallet:.2f}\n\nPlease add funds to continue.",
+                       parse_mode="HTML")
+        return
+    await send_msg(src, f"🛒 <b>Purchasing {qty} Telegram sessions…</b>", parse_mode="HTML")
+    placed = []
+    failed = 0
+    for _ in range(qty):
+        try:
+            d = await vnhotp.tg_place_order(code)
+            number = d["number"]
+            price = float(d.get("price", ctx["price_usd"]))
+            placed.append((number, number, price))  # ref == number for vnhotp tg
+        except Exception:
+            failed += 1
+    if not placed:
+        await send_msg(src, "❌ No numbers available right now. Please try again later.")
+        return
+    actual_inr = inr * len(placed)
+    await deduct_wallet(user_id, actual_inr, f"bulk tg {len(placed)}x {code}")
+    for ref, number, price in placed:
+        await add_order(user_id=user_id, service="tg", country_code=code,
+                        country_name=name, number=number, price=price,
+                        price_inr=inr, order_ref=ref, status="pending")
+    await send_msg(src, f"✅ <b>{len(placed)} numbers purchased!</b>\nBuilding sessions in parallel…", parse_mode="HTML")
+    for i, (ref, number, price) in enumerate(placed, 1):
+        status_msg = await bot.send_message(
+            chat_id, f"⏳ Session {i}/{len(placed)}: <code>+{number}</code> — waiting for OTP…",
+            parse_mode="HTML")
+        asyncio.create_task(_safe_poll(bot, user_id, chat_id, status_msg.message_id, "tg", ref, number))
+    if failed:
+        await send_msg(src, f"⚠️ {failed} order(s) failed (out of stock). Charged for {len(placed)} only.")
+
+
+register_executor("vnhotp", _exec_vnhotp_bulk)
