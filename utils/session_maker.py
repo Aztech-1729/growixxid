@@ -20,57 +20,6 @@ class SessionMakerError(Exception):
     pass
 
 
-def _telethon_to_pyrogram_string(telethon_session_path: str) -> str | None:
-    """Convert a Telethon .session file to a Pyrogram-compatible session string."""
-    try:
-        conn = sqlite3.connect(telethon_session_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT dc_id, auth_key FROM sessions LIMIT 1")
-        row = cursor.fetchone()
-        conn.close()
-        if not row:
-            return None
-        dc_id, auth_key = row
-        payload = struct.pack("B", dc_id) + bytes(auth_key) + struct.pack("B", 0)
-        return base64.urlsafe_b64encode(payload).decode()
-    except Exception:
-        return None
-
-
-async def _create_pyrogram_session_file(telethon_session_path: str, output_path: str) -> str | None:
-    """Create a Pyrogram-compatible .session file from a Telethon .session file.
-    Returns the export session string, or None on failure."""
-    try:
-        from pyrogram.storage import FileStorage
-
-        conn = sqlite3.connect(telethon_session_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT dc_id, auth_key FROM sessions LIMIT 1")
-        row = cursor.fetchone()
-        conn.close()
-        if not row:
-            return None
-        dc_id, auth_key = row
-
-        name = Path(output_path).stem
-        workdir = Path(output_path).parent
-        workdir.mkdir(parents=True, exist_ok=True)
-
-        fs = FileStorage(name, workdir)
-        await fs.open()
-        await fs.dc_id(dc_id)
-        await fs.auth_key(bytes(auth_key))
-        await fs.test_mode(False)
-        await fs.api_id(int(config.API_ID))
-        await fs.user_id(0)
-        await fs.save()
-        pg_string = await fs.export_session_string()
-        await fs.close()
-        return pg_string
-    except Exception:
-        return None
-
-
 class AutoSessionManager:
     def __init__(self, phone_number: str):
         self.phone_number = phone_number.replace("+", "").strip()
@@ -91,8 +40,6 @@ class AutoSessionManager:
         )
         self.phone_code_hash = None
         self.session_string = None
-        self.pyrogram_string = None
-        self.pyrogram_session_path = None
         self.code_sent_via = None  # "app" or "sms"
         self.user_info = {}  # id / first_name / last_name after sign-in
 
@@ -172,18 +119,7 @@ class AutoSessionManager:
         telethon_path = f"{self.session_path}.session"
         if not os.path.exists(telethon_path):
             raise SessionMakerError("Session file was not generated properly.")
-        
-        # Also generate Pyrogram-compatible session
-        try:
-            pyro_name = f"pyro_{self.session_name}"
-            pyro_path = os.path.join(self.session_dir, f"{pyro_name}.session")
-            pg_string = await _create_pyrogram_session_file(telethon_path, pyro_path)
-            if pg_string:
-                self.pyrogram_string = pg_string
-                self.pyrogram_session_path = pyro_path
-        except Exception:
-            pass  # Non-critical; Telethon session file is still available
-            
+
         return telethon_path
 
     def build_package(self, password: str = None) -> str:
@@ -196,7 +132,7 @@ class AutoSessionManager:
         phone = self.phone_number
         now = int(time.time())
 
-        # Read dc_id + auth_key for mtp_data (same payload as pyrogram string)
+        # Read dc_id + auth_key for mtp_data
         dc_id = 2
         auth_key = b""
         try:
@@ -248,7 +184,6 @@ class AutoSessionManager:
             "mtp_data": mtp_data,
             "ab_group": "a",
             "session_string": self.session_string or "",
-            "pyrogram_string": self.pyrogram_string or "",
         }
 
         json_name = f"{phone}.json"
@@ -258,16 +193,12 @@ class AutoSessionManager:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr(json_name, json.dumps(meta, indent=2, ensure_ascii=False))
             zf.write(telethon_path, session_name)
-            if self.pyrogram_session_path and os.path.exists(self.pyrogram_session_path):
-                zf.write(self.pyrogram_session_path, f"pyro_{phone}.session")
 
         return zip_path
 
     def cleanup(self):
         """Remove the generated session files."""
         paths = [f"{self.session_path}.session"]
-        if hasattr(self, "pyrogram_session_path") and self.pyrogram_session_path:
-            paths.append(self.pyrogram_session_path)
         if hasattr(self, "zip_path") and self.zip_path:
             paths.append(self.zip_path)
         for path in paths:

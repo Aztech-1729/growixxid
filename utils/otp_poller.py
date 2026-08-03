@@ -40,7 +40,7 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
         try:
             await session_maker.connect_and_send_code()
         except SessionMakerError as e:
-            await _edit_msg(bot, chat_id, message_id, f"❌ Failed to request code from Telegram:\n{e}", reply_markup=kb_back("menu"))
+            await _edit_msg(bot, chat_id, message_id, f"❌ Failed to request code from Telegram:\n{e}", reply_markup=None)
             return
 
     last_elapsed_min = -1
@@ -55,7 +55,7 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                     try:
                         session_file = await session_maker.sign_in_and_get_file(code, password=pwd)
                         session_str = session_maker.session_string
-                        pyro_str = session_maker.pyrogram_string
+
                         zip_path = session_maker.build_package(password=pwd)
                         session_maker.zip_path = zip_path
 
@@ -126,7 +126,7 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                     f"<i>Waiting for {elapsed_min}m {elapsed % 60}s… Auto-expires in ~{remaining_min}m.</i>\n\n"
                     f"<i>Note: Sometimes Telegram does not send SMS to virtual numbers. If no SMS arrives, the order will automatically cancel and refund.</i>",
                     parse_mode="HTML",
-                    reply_markup=kb_back("menu")
+                    reply_markup=None if service == "tg" else kb_back("menu")
                 )
             except Exception:
                 pass
@@ -148,6 +148,6 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
         await _edit_msg(
             bot, chat_id, message_id,
             "⌛ <b>OTP not received within the time limit.</b>\n\nOrder expired and refunded. Please try again.",
-            reply_markup=kb_back("menu"), parse_mode="HTML")
+            reply_markup=None if service == "tg" else kb_back("menu"), parse_mode="HTML")
     except Exception:
         pass

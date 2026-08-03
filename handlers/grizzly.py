@@ -457,7 +457,6 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                 try:
                     session_file = await session_maker.sign_in_and_get_file(code)
                     session_str = session_maker.session_string
-                    pyro_str = session_maker.pyrogram_string
                     zip_path = session_maker.build_package()
                     session_maker.zip_path = zip_path
 
@@ -554,4 +553,4 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
     await _edit_msg(
         bot, chat_id, message_id,
         "⌛ <b>OTP not received!</b>\n\nThe provider's wait time has expired. The order has been automatically cancelled and your wallet has been fully refunded.",
-        reply_markup=kb_back("menu"), parse_mode="HTML")
+        reply_markup=None if service_code == "tg" else kb_back("menu"), parse_mode="HTML")

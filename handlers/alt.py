@@ -343,7 +343,6 @@ async def poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number)
                 try:
                     session_file = await session_maker.sign_in_and_get_file(code)
                     session_str = session_maker.session_string
-                    pyro_str = session_maker.pyrogram_string
                     zip_path = session_maker.build_package()
                     session_maker.zip_path = zip_path
 
