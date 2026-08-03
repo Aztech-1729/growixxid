@@ -7,7 +7,11 @@ Flow for TG accounts:
      each auto-login builds a session zip and delivers it.
 """
 import asyncio
+import json
 import logging
+import os
+import time
+import zipfile
 
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
@@ -22,6 +26,78 @@ router = Router()
 MAX_QTY = 20
 
 _EXECUTORS = {}
+
+
+class SessionCollector:
+    """Collects built session files from parallel pollers and ships ONE zip.
+
+    Each parallel poller calls ``add()`` with its .session path + metadata;
+    when every order is accounted for, a single zip containing all
+    ``<phone>.session`` + ``<phone>.json`` files is sent to the buyer.
+    """
+
+    def __init__(self, bot, chat_id, total: int, service_name: str = "Telegram"):
+        self.bot = bot
+        self.chat_id = chat_id
+        self.total = total
+        self.service_name = service_name
+        self.lock = asyncio.Lock()
+        self.files = []  # (session_path, phone)
+        self.metas = []  # meta dicts (for .json files)
+        self.notes = []  # human-readable per-session lines
+        self.done = 0
+        self.failed = 0
+        self.finished = False
+
+    async def add(self, session_path, meta: dict, note: str = "") -> None:
+        async with self.lock:
+            self.files.append((session_path, meta.get("phone", "")))
+            self.metas.append(meta)
+            if note:
+                self.notes.append(note)
+            self.done += 1
+            if self.done + self.failed >= self.total:
+                await self._finish()
+
+    async def fail(self, note: str = "") -> None:
+        async with self.lock:
+            if note:
+                self.notes.append(note)
+            self.failed += 1
+            if self.done + self.failed >= self.total:
+                await self._finish()
+
+    async def _finish(self) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        try:
+            zip_path = os.path.join("sessions", f"bulk_{int(time.time())}.zip")
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for session_path, phone in self.files:
+                    if os.path.exists(session_path):
+                        zf.write(session_path, f"{phone}.session")
+                for meta in self.metas:
+                    phone = meta.get("phone", "")
+                    zf.writestr(f"{phone}.json", json.dumps(meta, indent=2, ensure_ascii=False))
+
+            caption = (
+                f"🎉 <b>Bulk Sessions Ready!</b>\n\n"
+                f"{self.done}/{self.total} sessions in <b>one zip</b>\n\n"
+                + "\n".join(self.notes)
+            )
+            if self.failed:
+                caption += f"\n\n⚠️ {self.failed} session(s) failed."
+
+            from aiogram.types import FSInputFile
+            await self.bot.send_document(
+                chat_id=self.chat_id,
+                document=FSInputFile(zip_path),
+                caption=caption,
+                parse_mode="HTML",
+            )
+        except Exception:
+            logging.exception("SessionCollector failed to ship zip")
 
 
 def register_executor(supplier: str, fn) -> None:

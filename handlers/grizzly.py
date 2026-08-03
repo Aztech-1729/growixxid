@@ -449,15 +449,15 @@ async def cb_grzcancel(call: CallbackQuery):
 
 
 # ---- OTP poller ----
-async def _safe_poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number):
+async def _safe_poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number, collector=None):
     try:
-        await poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number)
+        await poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number, collector)
     except Exception:
         import logging
         logging.exception("Grizzly OTP poller failed for %s", ref)
 
 
-async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number):
+async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name, ref, number, collector=None):
     interval = config.OTP_POLL_INTERVAL
     max_loops = int(1800 / interval)  # 30 mins max safety net
     LOCK_SECONDS = 120  # 2 minute cancel lock
@@ -487,6 +487,19 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                 try:
                     session_file = await session_maker.sign_in_and_get_file(code)
                     session_str = session_maker.session_string
+
+                    # Bulk mode: hand the built session to the shared collector
+                    if collector is not None:
+                        meta = session_maker.build_meta()
+                        note = f"✅ <code>+{number}</code> — OTP: <code>{code}</code>"
+                        await collector.add(session_file, meta, note)
+                        try:
+                            await bot.delete_message(chat_id, message_id)
+                        except Exception:
+                            pass
+                        await update_order(ref, status="completed", otp=code, session_string=session_str or "")
+                        return
+
                     zip_path = session_maker.build_package()
                     session_maker.zip_path = zip_path
 
@@ -512,6 +525,10 @@ async def poll_grz(bot, user_id, chat_id, message_id, service_code, service_name
                         pass
                     await update_order(ref, status="completed", otp=code, session_string=session_str or "")
                 except SessionMakerError as e:
+                    if collector is not None:
+                        await collector.fail(f"❌ <code>+{number}</code>: {e}")
+                        await update_order(ref, status="completed", otp=code)
+                        return
                     await bot.send_message(
                         chat_id=chat_id,
                         text=f"❌ <b>Session build failed.</b>\n\n<b>Error:</b> {e}\n\n<b>Here is your OTP anyway:</b> <code>{code}</code>",
@@ -620,13 +637,15 @@ async def _exec_grizzly_bulk(src, ctx, qty):
                         country_code=country_id, country_name=label, number=number,
                         price=ctx["price_usd"], price_inr=inr, order_ref=aid,
                         supplier="grizzly", status="pending")
-    await send_msg(src, f"✅ <b>{len(placed)} numbers purchased!</b>\nBuilding sessions in parallel…", parse_mode="HTML")
+    from utils.bulk_tg import SessionCollector
+    collector = SessionCollector(bot, chat_id, len(placed))
+    await send_msg(src, f"✅ <b>{len(placed)} numbers purchased!</b>\nBuilding sessions in parallel — all will arrive in <b>one zip</b>…", parse_mode="HTML")
     for i, (aid, number) in enumerate(placed, 1):
         status_msg = await bot.send_message(
             chat_id, f"⏳ Session {i}/{len(placed)}: <code>+{number}</code> — waiting for OTP…",
             parse_mode="HTML")
         asyncio.create_task(_safe_poll_grz(bot, user_id, chat_id, status_msg.message_id,
-                                           service_code, service_name, aid, number))
+                                           service_code, service_name, aid, number, collector))
     if failed:
         await send_msg(src, f"⚠️ {failed} order(s) failed (out of stock). Charged for {len(placed)} only.")
 

@@ -29,7 +29,7 @@ async def _edit_msg(bot, chat_id, message_id, text, reply_markup=None, parse_mod
             pass
 
 
-async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, number):
+async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, number, collector=None):
     interval = config.OTP_POLL_INTERVAL
     tries = max(1, int(config.OTP_TIMEOUT / interval))
     start_time = time.time()
@@ -55,6 +55,19 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                     try:
                         session_file = await session_maker.sign_in_and_get_file(code, password=pwd)
                         session_str = session_maker.session_string
+
+                        # Bulk mode: hand the built session to the shared collector
+                        # (one zip with ALL sessions is shipped when every order is done)
+                        if collector is not None:
+                            meta = session_maker.build_meta(password=pwd)
+                            note = f"✅ <code>+{number}</code> — OTP: <code>{code}</code>" + (f" | 🔐 2FA: <code>{pwd}</code>" if pwd else "")
+                            await collector.add(session_file, meta, note)
+                            try:
+                                await bot.delete_message(chat_id, message_id)
+                            except Exception:
+                                pass
+                            await update_order(ref, status="completed", otp=code, password=pwd, session_string=session_str or "")
+                            return
 
                         zip_path = session_maker.build_package(password=pwd)
                         session_maker.zip_path = zip_path
@@ -83,6 +96,10 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                             pass
                         await update_order(ref, status="completed", otp=code, password=pwd, session_string=session_str or "")
                     except SessionMakerError as e:
+                        if collector is not None:
+                            await collector.fail(f"❌ <code>+{number}</code>: {e}")
+                            await update_order(ref, status="completed", otp=code, password=pwd)
+                            return
                         await bot.send_message(
                             chat_id=chat_id,
                             text=f"❌ <b>Session build failed.</b>\n\n<b>Error:</b> {e}\n\n<b>Here is your OTP anyway:</b> <code>{code}</code>" + (f"\n🔐 <b>2FA:</b> <code>{pwd}</code>" if pwd else ""),

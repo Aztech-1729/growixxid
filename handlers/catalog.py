@@ -422,9 +422,9 @@ async def cb_get_otp(call: CallbackQuery):
         return
 
 
-async def _safe_poll(bot, user_id, chat_id, message_id, service, ref, number):
+async def _safe_poll(bot, user_id, chat_id, message_id, service, ref, number, collector=None):
     try:
-        await poll_and_update(bot, user_id, chat_id, message_id, service, ref, number)
+        await poll_and_update(bot, user_id, chat_id, message_id, service, ref, number, collector)
     except Exception:
         import logging
         logging.exception("OTP poller failed for %s", ref)
@@ -463,12 +463,14 @@ async def _exec_vnhotp_bulk(src, ctx, qty):
         await add_order(user_id=user_id, service="tg", country_code=code,
                         country_name=name, number=number, price=price,
                         price_inr=inr, order_ref=ref, status="pending")
-    await send_msg(src, f"✅ <b>{len(placed)} numbers purchased!</b>\nBuilding sessions in parallel…", parse_mode="HTML")
+    from utils.bulk_tg import SessionCollector
+    collector = SessionCollector(bot, chat_id, len(placed))
+    await send_msg(src, f"✅ <b>{len(placed)} numbers purchased!</b>\nBuilding sessions in parallel — all will arrive in <b>one zip</b>…", parse_mode="HTML")
     for i, (ref, number, price) in enumerate(placed, 1):
         status_msg = await bot.send_message(
             chat_id, f"⏳ Session {i}/{len(placed)}: <code>+{number}</code> — waiting for OTP…",
             parse_mode="HTML")
-        asyncio.create_task(_safe_poll(bot, user_id, chat_id, status_msg.message_id, "tg", ref, number))
+        asyncio.create_task(_safe_poll(bot, user_id, chat_id, status_msg.message_id, "tg", ref, number, collector))
     if failed:
         await send_msg(src, f"⚠️ {failed} order(s) failed (out of stock). Charged for {len(placed)} only.")
 

@@ -122,13 +122,8 @@ class AutoSessionManager:
 
         return telethon_path
 
-    def build_package(self, password: str = None) -> str:
-        """Build a reference-style delivery zip: <phone>.session + <phone>.json.
-        Returns the path to the zip file."""
-        telethon_path = f"{self.session_path}.session"
-        if not os.path.exists(telethon_path):
-            raise SessionMakerError("Session file not found; cannot build package.")
-
+    def build_meta(self, password: str = None) -> dict:
+        """Build the reference-style JSON metadata dict for this session."""
         phone = self.phone_number
         now = int(time.time())
 
@@ -136,7 +131,7 @@ class AutoSessionManager:
         dc_id = 2
         auth_key = b""
         try:
-            conn = sqlite3.connect(telethon_path)
+            conn = sqlite3.connect(f"{self.session_path}.session")
             cur = conn.cursor()
             row = cur.execute("SELECT dc_id, auth_key FROM sessions LIMIT 1").fetchone()
             conn.close()
@@ -148,7 +143,7 @@ class AutoSessionManager:
         mtp_payload = struct.pack("B", dc_id) + auth_key + struct.pack("B", 0)
         mtp_data = base64.urlsafe_b64encode(mtp_payload).decode()
 
-        meta = {
+        return {
             "session_file": phone,
             "phone": phone,
             "register_time": now,
@@ -185,6 +180,16 @@ class AutoSessionManager:
             "ab_group": "a",
             "session_string": self.session_string or "",
         }
+
+    def build_package(self, password: str = None) -> str:
+        """Build a reference-style delivery zip: <phone>.session + <phone>.json.
+        Returns the path to the zip file."""
+        telethon_path = f"{self.session_path}.session"
+        if not os.path.exists(telethon_path):
+            raise SessionMakerError("Session file not found; cannot build package.")
+
+        phone = self.phone_number
+        meta = self.build_meta(password)
 
         json_name = f"{phone}.json"
         session_name = f"{phone}.session"
