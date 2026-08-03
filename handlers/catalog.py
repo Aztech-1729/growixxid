@@ -247,7 +247,7 @@ async def cb_confirm(call: CallbackQuery):
     await call.message.delete()
     if service == "tg":
         text = (
-            f"⏳ <b>Number acquired! Generating Telegram Session...</b>\n\n<b>Service:</b> {service.upper()}\n"
+            f"⏳ <b>Number acquired! Waiting for Telegram OTP…</b>\n\n<b>Service:</b> {service.upper()}\n"
             f"<b>Number:</b> <code>{number}</code>\n<b>Charged:</b> {display_price}"
         )
     else:

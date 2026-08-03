@@ -5,7 +5,6 @@ Generic catalog -> offering -> confirm -> place order -> OTP delivery, driven by
 """
 import asyncio
 import html
-import os
 
 from aiogram import Router, F
 from aiogram.enums import ButtonStyle
@@ -20,7 +19,6 @@ from ui.keyboards import kb_back
 from utils.rates import usd_to_inr
 from services.suppliers import SUPPLIERS, get_offerings, buy, get_code, cancel
 from utils.session_maker import AutoSessionManager, SessionMakerError
-from aiogram.types import FSInputFile
 
 router = Router()
 
@@ -264,7 +262,7 @@ async def cb_altconfirm(call: CallbackQuery):
     await call.message.delete()
     if is_tg:
         text = (
-            f"⏳ <b>Number acquired! Generating Telegram Session...</b>\n\n<b>Service:</b> {service.upper()}\n"
+            f"⏳ <b>Number acquired! Waiting for Telegram OTP…</b>\n\n<b>Service:</b> {service.upper()}\n"
             f"<b>Number:</b> <code>{number}</code>\n<b>Charged:</b> {display_price}"
         )
     else:
@@ -338,49 +336,14 @@ async def poll_alt(bot, user_id, chat_id, message_id, sid, service, ref, number)
             code = None
         if code:
             if service == "tg":
-                await _edit_msg(bot, chat_id, message_id, "✅ <b>OTP Received! Generating session...</b>", parse_mode="HTML")
-                try:
-                    session_file = await session_maker.sign_in_and_get_file(code)
-                    session_str = session_maker.session_string
-                    pyro_str = session_maker.pyrogram_string
-                    
-                    doc = FSInputFile(session_file)
-                    caption = f"🎉 Here is your `.session` file for +{number}!\n\n"
-                    if session_str:
-                        caption += f"<b>Telethon String:</b>\n<code>{session_str}</code>\n\n"
-                    if pyro_str:
-                        caption += f"<b>Pyrogram String:</b>\n<code>{pyro_str}</code>\n\n"
-                    from ui.keyboards import kb_get_otp
-                    await bot.send_document(
-                        chat_id=chat_id,
-                        document=doc,
-                        caption=caption,
-                        parse_mode="HTML",
-                        reply_markup=kb_get_otp("tiger", ref, number)
-                    )
-                    
-                    if session_maker.pyrogram_session_path and os.path.exists(session_maker.pyrogram_session_path):
-                        try:
-                            pyro_doc = FSInputFile(session_maker.pyrogram_session_path)
-                            await bot.send_document(
-                                chat_id=chat_id,
-                                document=pyro_doc,
-                                caption="📁 <b>Pyrogram/Kurigram session file</b> (for use with Pyrogram/Kurigram)",
-                                parse_mode="HTML"
-                            )
-                        except Exception:
-                            pass
-                    
-                    await bot.delete_message(chat_id, message_id)
-                    await update_order(ref, status="completed", otp=code, session_string=session_str or "")
-                except SessionMakerError as e:
-                    await bot.send_message(
-                        chat_id=chat_id,
-                        text=f"❌ <b>Failed to create Telegram session.</b>\n\n<b>Error:</b> {e}\n\n<b>Here is your OTP anyway:</b> <code>{code}</code>",
-                        parse_mode="HTML"
-                    )
-                    await bot.delete_message(chat_id, message_id)
-                    await update_order(ref, status="completed", otp=code)
+                await update_order(ref, status="completed", otp=code)
+                from ui.keyboards import kb_get_otp
+                await _edit_msg(
+                    bot, chat_id, message_id,
+                    f"✅ <b>OTP Received!</b>\n\n"
+                    f"<b>Service:</b> {service.upper()}\n"
+                    f"<b>Number:</b> <code>{number}</code>\n<b>OTP:</b> <code>{code}</code>",
+                    reply_markup=kb_get_otp("tiger", ref, number), parse_mode="HTML")
                 return
             else:
                 await update_order(ref, status="completed", otp=code)

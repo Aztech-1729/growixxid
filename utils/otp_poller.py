@@ -13,7 +13,6 @@ from core.db import update_order
 from ui.keyboards import kb_back
 from services.vnhotp import VNHOTPError, vnhotp
 from utils.session_maker import AutoSessionManager, SessionMakerError
-from aiogram.types import FSInputFile
 
 
 async def _edit_msg(bot, chat_id, message_id, text, reply_markup=None, parse_mode=None):
@@ -52,54 +51,16 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                 code = d.get("code")
                 pwd = d.get("password")
                 if code:
-                    await _edit_msg(bot, chat_id, message_id, "✅ <b>OTP Received! Generating session...</b>", parse_mode="HTML")
-                    try:
-                        session_file = await session_maker.sign_in_and_get_file(code, password=pwd)
-                        session_str = session_maker.session_string
-                        pyro_str = session_maker.pyrogram_string
-                        
-                        doc = FSInputFile(session_file)
-                        caption = (
-                            f"🎉 Here is your `.session` file for +{number}!\n"
-                            f"Password: <code>{pwd or '—'}</code>\n\n"
-                        )
-                        if session_str:
-                            caption += f"<b>Telethon String:</b>\n<code>{session_str}</code>\n\n"
-                        if pyro_str:
-                            caption += f"<b>Pyrogram String:</b>\n<code>{pyro_str}</code>\n\n"
-
-                        from ui.keyboards import kb_get_otp
-                        await bot.send_document(
-                            chat_id=chat_id,
-                            document=doc,
-                            caption=caption,
-                            parse_mode="HTML",
-                            reply_markup=kb_get_otp("vnhotp", ref, number)
-                        )
-                        
-                        # Also send Pyrogram .session file if generated
-                        if session_maker.pyrogram_session_path and os.path.exists(session_maker.pyrogram_session_path):
-                            try:
-                                pyro_doc = FSInputFile(session_maker.pyrogram_session_path)
-                                await bot.send_document(
-                                    chat_id=chat_id,
-                                    document=pyro_doc,
-                                    caption="📁 <b>Pyrogram/Kurigram session file</b> (for use with Pyrogram/Kurigram)",
-                                    parse_mode="HTML"
-                                )
-                            except Exception:
-                                pass
-                        
-                        await bot.delete_message(chat_id, message_id)
-                        await update_order(ref, status="completed", otp=code, password=pwd, session_string=session_str or "")
-                    except SessionMakerError as e:
-                        await bot.send_message(
-                            chat_id=chat_id,
-                            text=f"❌ <b>Failed to create Telegram session.</b>\n\n<b>Error:</b> {e}\n\n<b>Here is your OTP anyway:</b> <code>{code}</code>",
-                            parse_mode="HTML"
-                        )
-                        await bot.delete_message(chat_id, message_id)
-                        await update_order(ref, status="completed", otp=code, password=pwd)
+                    await update_order(ref, status="completed", otp=code, password=pwd)
+                    text = (
+                        f"✅ <b>OTP Received!</b>\n\n"
+                        f"<b>Number:</b> <code>{number}</code>\n"
+                        f"<b>OTP:</b> <code>{code}</code>"
+                    )
+                    if pwd:
+                        text += f"\n\n🔐 <b>2FA Password:</b> <code>{pwd}</code>"
+                    from ui.keyboards import kb_get_otp
+                    await _edit_msg(bot, chat_id, message_id, text, reply_markup=kb_get_otp("vnhotp", ref, number), parse_mode="HTML")
                     return
             else:
                 code = await vnhotp.wp_get_status(service, ref)
