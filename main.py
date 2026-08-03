@@ -1,5 +1,16 @@
 """Entrypoint for the GROWIXX Acc Store Bot."""
 import asyncio
+import logging
+import sys
+
+# Make ALL logs visible in docker logs immediately (stdout is block-buffered
+# otherwise, so errors were invisible).
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
 
 from aiohttp import web
 from aiogram import Bot, Dispatcher
@@ -24,6 +35,12 @@ async def main() -> None:
 
     bot = Bot(token=config.BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
+
+    # Surface unhandled handler exceptions with full tracebacks
+    async def on_error(update, exception):
+        logging.exception("Unhandled error on update %s", getattr(update, "update_id", "?"), exc_info=exception)
+
+    dp.errors.register(on_error)
 
     # Force users to join the channel before using the bot
     dp.update.middleware(ForceJoinMiddleware())

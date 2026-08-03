@@ -129,15 +129,22 @@ async def ask_tg_quantity(call: CallbackQuery, state: FSMContext, ctx: dict) -> 
     ctx["msg_id"] = call.message.message_id
     await state.set_state(BulkState.waiting_for_qty)
     await state.set_data(ctx)
+    text = (
+        f"🎟 <b>Bulk Telegram Sessions</b>\n\n"
+        f"{ctx.get('service_name', 'Telegram')} · {ctx.get('country_name', '')}\n"
+        f"Price: <b>{ctx.get('display_price', '')}</b> per session\n\n"
+        f"How many sessions do you want to buy? (1–{MAX_QTY})"
+    )
     try:
-        await call.message.edit_text(
-            f"🎟 <b>Bulk Telegram Sessions</b>\n\n"
-            f"{ctx.get('service_name', 'Telegram')} · {ctx.get('country_name', '')}\n"
-            f"Price: <b>{ctx.get('display_price', '')}</b> per session\n\n"
-            f"How many sessions do you want to buy? (1–{MAX_QTY})",
-            parse_mode="HTML", reply_markup=_qty_kb())
+        await call.message.edit_text(text, parse_mode="HTML", reply_markup=_qty_kb())
     except Exception:
-        pass
+        # If the old message can't be edited, send a fresh prompt instead of
+        # silently doing nothing (which looked like a dead button).
+        try:
+            await call.message.answer(text, parse_mode="HTML", reply_markup=_qty_kb())
+        except Exception:
+            import logging
+            logging.exception("ask_tg_quantity: could not show quantity prompt")
 
 
 def src_info(src):
