@@ -29,7 +29,7 @@ async def _edit_msg(bot, chat_id, message_id, text, reply_markup=None, parse_mod
             pass
 
 
-async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, number, collector=None):
+async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, number, collector=None, _accounted_flag=None):
     interval = config.OTP_POLL_INTERVAL
     tries = max(1, int(config.OTP_TIMEOUT / interval))
     start_time = time.time()
@@ -62,6 +62,8 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                             meta = session_maker.build_meta(password=pwd)
                             note = f"✅ <code>+{number}</code> — OTP: <code>{code}</code>" + (f" | 🔐 2FA: <code>{pwd}</code>" if pwd else "")
                             await collector.add(session_file, meta, note)
+                            if _accounted_flag is not None:
+                                _accounted_flag[0] = True
                             try:
                                 await bot.delete_message(chat_id, message_id)
                             except Exception:
@@ -98,6 +100,8 @@ async def poll_and_update(bot, user_id, chat_id, message_id, service, ref, numbe
                     except SessionMakerError as e:
                         if collector is not None:
                             await collector.fail(f"❌ <code>+{number}</code>: {e}")
+                            if _accounted_flag is not None:
+                                _accounted_flag[0] = True
                             await update_order(ref, status="completed", otp=code, password=pwd)
                             return
                         await bot.send_message(

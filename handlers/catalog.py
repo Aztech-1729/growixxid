@@ -15,7 +15,7 @@ from core.db import (add_order, get_user_orders, update_order, get_wallet, deduc
 from ui.keyboards import kb_back, kb_confirm, kb_countries, kb_order_wp, kb_service, kb_myorders
 from utils.otp_poller import poll_and_update
 from utils.rates import usd_to_inr
-from utils.bulk_tg import ask_tg_quantity, register_executor, src_info, send_msg
+from utils.bulk_tg import ask_tg_quantity, register_executor, src_info, send_msg, POLLER_TASKS
 from services.vnhotp import VNHOTPError, vnhotp
 
 router = Router()
@@ -423,11 +423,30 @@ async def cb_get_otp(call: CallbackQuery):
 
 
 async def _safe_poll(bot, user_id, chat_id, message_id, service, ref, number, collector=None):
+    accounted = [False]  # mutable flag: True once collector.add/fail has been called
     try:
-        await poll_and_update(bot, user_id, chat_id, message_id, service, ref, number, collector)
+        await poll_and_update(bot, user_id, chat_id, message_id, service, ref, number, collector,
+                             _accounted_flag=accounted)
     except Exception:
         import logging
         logging.exception("OTP poller failed for %s", ref)
+    finally:
+        # If poll_and_update exited without calling collector.add/fail (e.g.
+        # task was GC'd mid-await, exception before collector accounting, etc.)
+        # make sure the collector still finishes.
+        if collector is not None and not accounted[0]:
+            try:
+                await _edit_msg(bot, chat_id, message_id,
+                               "❌ <b>Session build failed unexpectedly.</b> Order will be refunded.",
+                               parse_mode="HTML")
+            except Exception:
+                pass
+            await collector.fail(f"❌ <code>+{number}</code>: poller crashed")
+            from core.db import get_order, credit_wallet
+            o = await get_order(ref)
+            if o and not o.get("refunded") and float(o.get("price_inr", 0)):
+                await credit_wallet(user_id, float(o["price_inr"]), f"Refund for crashed poller {ref}")
+                await update_order(ref, status="expired", refunded=True)
 
 
 # ---- bulk TG purchase executor (vnhotp) ----
@@ -470,7 +489,9 @@ async def _exec_vnhotp_bulk(src, ctx, qty):
         status_msg = await bot.send_message(
             chat_id, f"⏳ Session {i}/{len(placed)}: <code>+{number}</code> — waiting for OTP…",
             parse_mode="HTML")
-        asyncio.create_task(_safe_poll(bot, user_id, chat_id, status_msg.message_id, "tg", ref, number, collector))
+        task = asyncio.create_task(_safe_poll(bot, user_id, chat_id, status_msg.message_id, "tg", ref, number, collector))
+        POLLER_TASKS.add(task)
+        task.add_done_callback(POLLER_TASKS.discard)
     if failed:
         await send_msg(src, f"⚠️ {failed} order(s) failed (out of stock). Charged for {len(placed)} only.")
 

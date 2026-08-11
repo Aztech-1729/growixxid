@@ -19,6 +19,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from core.config import config
 from core.states import BulkState
 
 router = Router()
@@ -26,6 +27,9 @@ router = Router()
 MAX_QTY = 20
 
 _EXECUTORS = {}
+
+# Strong references to prevent poller tasks from being GC'd while pending.
+POLLER_TASKS: set[asyncio.Task] = set()
 
 
 class SessionCollector:
@@ -48,6 +52,29 @@ class SessionCollector:
         self.done = 0
         self.failed = 0
         self.finished = False
+        self._watchdog: asyncio.Task | None = None
+        self._watchdog = asyncio.create_task(self._run_watchdog())
+
+    async def _run_watchdog(self) -> None:
+        """Auto-finish after OTP_TIMEOUT + 30 s grace period.
+
+        If poller tasks die (GC'd, killed, etc.) without calling add/fail,
+        this watchdog guarantees the collector still ships the zip with
+        whatever succeeded and marks everything else failed.
+        """
+        try:
+            await asyncio.sleep(config.OTP_TIMEOUT + 30)
+        except asyncio.CancelledError:
+            return
+        async with self.lock:
+            if self.finished:
+                return
+            missing = self.total - self.done - self.failed
+            if missing > 0:
+                self.failed += missing
+                self.notes.append(f"⚠️ {missing} session(s) timed out (poller died or OTP not received)")
+                logging.warning("SessionCollector watchdog: %d sessions unaccounted — auto-failing", missing)
+            await self._finish()
 
     async def add(self, session_path, meta: dict, note: str = "") -> None:
         async with self.lock:
@@ -71,6 +98,9 @@ class SessionCollector:
         if self.finished:
             return
         self.finished = True
+        if self._watchdog:
+            self._watchdog.cancel()
+            self._watchdog = None
         try:
             zip_path = os.path.join("sessions", f"bulk_{int(time.time())}.zip")
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
